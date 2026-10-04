@@ -1,6 +1,6 @@
 // src/server.ts
 import express from 'express';
-import cors from 'cors';
+import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -11,26 +11,78 @@ dotenv.config();
 
 const app = express();
 
-// ✅ Configuración general de CORS
-app.use(cors({
-  origin: 'http://localhost:3000',
+// =====================================================
+// ✅ ORÍGENES PERMITIDOS
+// =====================================================
+
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://prisma.upf5.com',
+];
+
+// =====================================================
+// ✅ CONFIGURACIÓN GENERAL DE CORS
+// =====================================================
+
+const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    // Permite peticiones sin Origin, por ejemplo:
+    // curl, Postman o comunicaciones servidor a servidor.
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`Origen no permitido por CORS: ${origin}`));
+  },
   credentials: true,
-}));
+};
+
+app.use(cors(corsOptions));
 
 app.use(helmet());
 app.use(express.json());
 
-// ✅ Middleware CORS específico para archivos estáticos (firmas, adjuntos, etc.)
+// =====================================================
+// ✅ CORS PARA ARCHIVOS ESTÁTICOS
+// Firmas, adjuntos, imágenes, etc.
+// =====================================================
+
 app.use('/uploads', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+  const origin = req.headers.origin;
+
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin'); 
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization'
+  );
+  res.setHeader(
+    'Cross-Origin-Resource-Policy',
+    'cross-origin'
+  );
+
   next();
 });
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// ✅ Importar rutas
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '../uploads'))
+);
+
+// =====================================================
+// ✅ IMPORTAR RUTAS
+// =====================================================
+
 import auditoriaRoutes from './routes/auditoria.routes';
 import authRoutes from './routes/auth.routes';
 import capacitacionRoutes from './routes/capacitacion.routes';
@@ -56,12 +108,15 @@ import preguntaExamenRoutes from './routes/pregunta_examen.routes';
 import respuestaExamenRoutes from './routes/respuesta_examen.routes';
 import relDocumentoUsuarioRoutes from './routes/rel_documentos_usuarios.routes';
 
-// ✅ Asociar rutas
+// =====================================================
+// ✅ ASOCIAR RUTAS
+// =====================================================
+
 app.use('/api/auditorias', auditoriaRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/capacitaciones', capacitacionRoutes);
 app.use('/api/comentarios', comentarioRoutes);
-app.use('/api/documentos', documentoRoutes); // ← Ruta principal para documentos
+app.use('/api/documentos', documentoRoutes);
 app.use('/api/empresas', empresaRoutes);
 app.use('/api/epp', eppRoutes);
 app.use('/api/estadisticas', estadisticaRoutes);
@@ -81,26 +136,45 @@ app.use('/api/examenes', examenRoutes);
 app.use('/api/preguntas-examen', preguntaExamenRoutes);
 app.use('/api/respuestas-examen', respuestaExamenRoutes);
 
-// ✅ Rutas para relaciones documento-usuario
-app.use('/api/rel-documentos-usuarios', relDocumentoUsuarioRoutes); // ← Solo aquí
+// =====================================================
+// ✅ RELACIONES DOCUMENTO - USUARIO
+// =====================================================
 
-// ✅ Ruta raíz
+app.use(
+  '/api/rel-documentos-usuarios',
+  relDocumentoUsuarioRoutes
+);
+
+// =====================================================
+// ✅ RUTA RAÍZ
+// =====================================================
+
 app.get('/', (_req, res) => {
   res.send('🚀 Backend Prisma funcionando');
 });
 
-// ✅ Puerto y conexión
+// =====================================================
+// ✅ PUERTO Y CONEXIÓN A BASE DE DATOS
+// =====================================================
+
 const PORT = process.env.PORT || 3001;
 
-sequelize.authenticate()
+sequelize
+  .authenticate()
   .then(() => {
-    console.log('✅ Conexión a la base de datos establecida correctamente.');
+    console.log(
+      '✅ Conexión a la base de datos establecida correctamente.'
+    );
+
     return sequelize.sync();
   })
   .then(() => {
     console.log('✅ Modelos sincronizados');
+
     app.listen(PORT, () => {
-      console.log(`✅ Servidor escuchando en http://localhost:${PORT}`);
+      console.log(
+        `✅ Servidor escuchando en http://localhost:${PORT}`
+      );
     });
   })
   .catch((error: any) => {
