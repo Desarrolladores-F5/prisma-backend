@@ -32,7 +32,10 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.15.3",
     "@types/pdfkit": "^0.13.9",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.1",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.12"
   }
 }
