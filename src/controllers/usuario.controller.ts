@@ -17,7 +17,17 @@ const getFilePath = (req: Request, field: 'firma' | 'foto'): string | undefined 
 /* ========== Crear ========== */
 export const crearUsuario = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { contraseña, ...datosRestantes } = req.body;
+    const body = { ...(req.body || {}) };
+
+    // Compatibilidad con nombres de campos UTF-8
+    // interpretados como Latin-1 por Multer.
+    if (body['contraseña'] === undefined && body['contraseÃ±a'] !== undefined) {
+      body['contraseña'] = body['contraseÃ±a'];
+    }
+
+    delete body['contraseÃ±a'];
+
+    const { contraseña, ...datosRestantes } = body;
 
     if (!tiposPermitidos.includes(datosRestantes.tipo_contrato)) {
       res.status(400).json({ mensaje: '❌ Tipo de contrato no válido' });
