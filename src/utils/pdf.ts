@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 
 export const generarPDFConfirmacion = async ({
   documento,
@@ -25,15 +26,18 @@ export const generarPDFConfirmacion = async ({
   documentoId: number;
   usuarioId: number;
 }): Promise<string> => {
+  let archivoCreado: string | null = null;
+
   try {
     const outputDir = path.join(__dirname, '../../uploads/confirmaciones');
     fs.mkdirSync(outputDir, { recursive: true });
 
-    const filename = `confirmacion_doc_${documentoId}_usuario_${usuarioId}_${Date.now()}.pdf`;
+    const filename = `confirmacion_doc_${documentoId}_usuario_${usuarioId}_${Date.now()}_${randomUUID()}.pdf`;
     const outputPath = path.join(outputDir, filename);
 
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const writeStream = fs.createWriteStream(outputPath);
+    archivoCreado = outputPath;
     doc.pipe(writeStream);
 
     // ✅ Título centrado
@@ -82,12 +86,21 @@ export const generarPDFConfirmacion = async ({
     doc.end();
 
     await new Promise<void>((resolve, reject) => {
-      writeStream.on('finish', resolve);
-      writeStream.on('error', reject);
+      writeStream.once('finish', resolve);
+      writeStream.once('error', reject);
+      doc.once('error', reject);
     });
 
     return `/uploads/confirmaciones/${filename}`;
   } catch (error) {
+    if (archivoCreado) {
+      try {
+        await fs.promises.unlink(archivoCreado);
+      } catch (errorLimpieza) {
+        console.error('No se pudo limpiar el PDF parcial:', errorLimpieza);
+      }
+    }
+
     console.error('❌ Error al generar PDF:', error);
     throw new Error('Error al generar constancia PDF');
   }
