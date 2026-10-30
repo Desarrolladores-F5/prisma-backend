@@ -67,9 +67,22 @@ export const asignarDocumentoAUsuario = async (req: Request, res: Response): Pro
 export const obtenerDocumentosPorUsuario = async (req: Request, res: Response): Promise<void> => {
   try {
     const { usuario_id } = req.params;
+    const usuarioAutenticadoId = (req as any).usuario?.id;
+
+    if (!usuarioAutenticadoId) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado.' });
+      return;
+    }
+
+    if (String(usuarioAutenticadoId) !== String(usuario_id)) {
+      res.status(403).json({
+        mensaje: 'No tienes autorización para consultar documentos de otro usuario.',
+      });
+      return;
+    }
 
     const asignaciones = await RelDocumentoUsuario.findAll({
-      where: { usuario_id },
+      where: { usuario_id: usuarioAutenticadoId },
       include: [{ model: Documento, as: 'documento' }],
     });
 
