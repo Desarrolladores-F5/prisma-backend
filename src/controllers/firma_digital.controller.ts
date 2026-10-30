@@ -35,6 +35,22 @@ export const crearFirma = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
+    const usuarioAutenticadoId = (req as any).usuario?.id;
+
+    if (!usuarioAutenticadoId) {
+      res.status(401).json({
+        mensaje: 'Usuario no autenticado.',
+      });
+      return;
+    }
+
+    if (String(firmante_id) !== String(usuarioAutenticadoId)) {
+      res.status(403).json({
+        mensaje: 'No tienes autorización para registrar firmas de otro usuario.',
+      });
+      return;
+    }
+
     console.log('📥 Datos de firma recibidos:', {
       firmante_id,
       hash_firma,
