@@ -198,6 +198,28 @@ export const descargarPDFRespuesta = async (req: Request, res: Response): Promis
       return;
     }
 
+    const usuarioAutenticado = (req as any).usuario;
+
+    if (!usuarioAutenticado?.id) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado.' });
+      return;
+    }
+
+    const esAdministrador = Number(usuarioAutenticado.rol_id) === 1;
+
+    if (
+      !esAdministrador &&
+      (
+        respuesta.usuario_id == null ||
+        String(respuesta.usuario_id) !== String(usuarioAutenticado.id)
+      )
+    ) {
+      res.status(403).json({
+        mensaje: 'No tienes autorización para descargar esta respuesta.',
+      });
+      return;
+    }
+
     const doc = new PDFDocument({ margin: 50 });
     const pdfPath = path.join(__dirname, `../../temp/resp_formulario_${respuesta.id}.pdf`);
     const writeStream = fs.createWriteStream(pdfPath);
