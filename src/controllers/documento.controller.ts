@@ -232,6 +232,14 @@ export const confirmarRecepcionDocumento = async (req: Request, res: Response): 
   const usuario = (req as any).usuario;
   const documentoId = Number(req.params.documentoId);
 
+  // La aceptación debe ser expresa y estrictamente booleana.
+  if (req.body?.acepta_declaracion !== true) {
+    res.status(400).json({
+      mensaje: 'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
+    });
+    return;
+  }
+
   if (!usuario?.id || !documentoId) {
     res.status(400).json({ mensaje: '❌ Datos inválidos' });
     return;

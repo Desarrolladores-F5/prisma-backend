@@ -110,17 +110,8 @@ describe('Seguridad - autorización para firmar documentos', () => {
       })
     );
 
-    expect(RelDocumentoUsuario.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recepcionado: true,
-      }),
-      expect.objectContaining({
-        where: {
-          documento_id: 45,
-          usuario_id: 12,
-        },
-      })
-    );
+    // Crear una firma no debe confirmar automáticamente la recepción.
+    expect(RelDocumentoUsuario.update).not.toHaveBeenCalled();
   });
 
 

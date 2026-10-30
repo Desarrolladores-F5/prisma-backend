@@ -117,28 +117,6 @@ export const crearFirma = async (req: Request, res: Response): Promise<void> => 
       }
     }
 
-    // 🔁 Asociar con documento si aplica
-    if (metadata?.entidad === 'documento' && metadata?.entidad_id) {
-      const actualizado = await RelDocumentoUsuario.update(
-        {
-          recepcionado: true,
-          fecha_recepcion: new Date(),
-        },
-        {
-          where: {
-            documento_id: metadata.entidad_id,
-            usuario_id: firmante_id
-          }
-        }
-      );
-
-      if (actualizado[0] > 0) {
-        console.log(`✅ Documento ID ${metadata.entidad_id} marcado como recepcionado por usuario ${firmante_id}`);
-      } else {
-        console.warn(`⚠️ No se encontró relación documento-usuario para ID ${metadata.entidad_id}`);
-      }
-    }
-
     res.status(201).json(nuevaFirma);
   } catch (error) {
     console.error('❌ Error en crearFirma:', error);

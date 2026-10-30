@@ -261,6 +261,14 @@ export const confirmarRecepcion = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    // La recepción documental requiere aceptación expresa.
+    if (req.body?.acepta_declaracion !== true) {
+      res.status(400).json({
+        mensaje: 'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
+      });
+      return;
+    }
+
     const relacion = await RelDocumentoUsuario.findOne({
       where: { documento_id, usuario_id },
       include: [
@@ -271,6 +279,14 @@ export const confirmarRecepcion = async (req: Request, res: Response): Promise<v
 
     if (!relacion || !relacion.documento || !relacion.usuario) {
       res.status(404).json({ mensaje: 'No se encontró la relación con datos completos.' });
+      return;
+    }
+
+    // Evitar generar constancias y firmas duplicadas.
+    if (relacion.recepcionado) {
+      res.status(409).json({
+        mensaje: 'El documento ya fue confirmado anteriormente.',
+      });
       return;
     }
 
