@@ -108,6 +108,28 @@ export const obtenerRespuestaPorId = async (req: Request, res: Response): Promis
       return;
     }
 
+    const usuarioAutenticado = (req as any).usuario;
+
+    if (!usuarioAutenticado?.id) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado.' });
+      return;
+    }
+
+    const esAdministrador = Number(usuarioAutenticado.rol_id) === 1;
+
+    if (
+      !esAdministrador &&
+      (
+        respuesta.usuario_id == null ||
+        String(respuesta.usuario_id) !== String(usuarioAutenticado.id)
+      )
+    ) {
+      res.status(403).json({
+        mensaje: 'No tienes autorización para consultar esta respuesta.',
+      });
+      return;
+    }
+
     res.json(respuesta);
   } catch (error) {
     console.error('❌ Error al obtener la respuesta por ID:', error);
