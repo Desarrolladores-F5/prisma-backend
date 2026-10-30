@@ -51,7 +51,7 @@ describe('Seguridad documental - identidad del firmante', () => {
 
   const datosFirma = {
     hash_firma: 'hash-de-prueba',
-    tipo_firma: 'firma_documento',
+    tipo_firma: 'prueba_seguridad',
     metadata: {
       entidad: 'prueba_seguridad',
     },

@@ -6,6 +6,7 @@ import {
   eliminarAsignacionDocumentoUsuario,
   obtenerConfirmacionesPorDocumento,
   confirmarRecepcion,
+  descargarConstancia,
 } from '../controllers/rel_documentos_usuarios.controller';
 import { validarToken } from '../middlewares/validarToken';
 import { esAdministrador } from '../middlewares/autorizarRol';
@@ -14,6 +15,9 @@ const router = Router();
 
 // Asignar documento (solo admin)
 router.post('/', validarToken, esAdministrador, asignarDocumentoAUsuario);
+
+// 🔒 Descargar constancia documental con autorización
+router.get('/constancias/:id', validarToken, descargarConstancia);
 
 // Obtener documentos asignados por usuario
 router.get('/:usuario_id', validarToken, obtenerDocumentosPorUsuario);

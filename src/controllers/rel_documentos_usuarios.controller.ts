@@ -4,6 +4,100 @@ import { RelDocumentoUsuario, Usuario, Documento, FirmaDigital } from '../models
 import { generarPDFConfirmacion } from '../utils/pdf';
 import crypto from 'crypto';
 
+
+// 🔒 Descarga autorizada de constancias documentales
+export const descargarConstancia = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const usuario = (req as any).usuario;
+
+    if (!usuario?.id) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado.' });
+      return;
+    }
+
+    const asignacionId = Number(req.params.id);
+
+    if (!Number.isSafeInteger(asignacionId) || asignacionId <= 0) {
+      res.status(400).json({ mensaje: 'Identificador inválido.' });
+      return;
+    }
+
+    const relacion = await RelDocumentoUsuario.findByPk(asignacionId);
+
+    if (!relacion) {
+      res.status(404).json({ mensaje: 'Constancia no encontrada.' });
+      return;
+    }
+
+    const esPropietario = String(relacion.usuario_id) === String(usuario.id);
+    const esAdmin = Number(usuario.rol_id) === 1;
+
+    if (!esPropietario && !esAdmin) {
+      res.status(403).json({ mensaje: 'No autorizado para descargar esta constancia.' });
+      return;
+    }
+
+    if (!relacion.recepcionado || !relacion.ruta_constancia_pdf) {
+      res.status(404).json({ mensaje: 'Constancia no disponible.' });
+      return;
+    }
+
+    const path = await import('path');
+    const fs = await import('fs');
+
+    const directorio = path.resolve(__dirname, '../../uploads/confirmaciones');
+    const rutaRegistrada = relacion.ruta_constancia_pdf;
+
+    if (
+      typeof rutaRegistrada !== 'string' ||
+      !rutaRegistrada.startsWith('/uploads/confirmaciones/')
+    ) {
+      res.status(400).json({ mensaje: 'Ruta de constancia inválida.' });
+      return;
+    }
+
+    const nombreArchivo = rutaRegistrada.slice('/uploads/confirmaciones/'.length);
+
+    if (
+      !/^[a-zA-Z0-9_-]+\.pdf$/.test(nombreArchivo)
+    ) {
+      res.status(400).json({ mensaje: 'Nombre de constancia inválido.' });
+      return;
+    }
+
+    const archivoPDF = path.join(directorio, nombreArchivo);
+
+    let datosArchivo;
+    try {
+      datosArchivo = await fs.promises.lstat(archivoPDF);
+    } catch {
+      res.status(404).json({ mensaje: 'Archivo PDF no encontrado.' });
+      return;
+    }
+
+    if (!datosArchivo.isFile() || datosArchivo.isSymbolicLink()) {
+      res.status(404).json({ mensaje: 'Archivo PDF no disponible.' });
+      return;
+    }
+
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.sendFile(archivoPDF, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline',
+      },
+    }, (error) => {
+      if (error && !res.headersSent) {
+        res.status(500).json({ mensaje: 'No fue posible entregar la constancia.' });
+      }
+    });
+  } catch (error) {
+    console.error('Error al descargar constancia:', error);
+    res.status(500).json({ mensaje: 'Error al descargar constancia.' });
+  }
+};
+
 // ✅ Asignar documento (uno o múltiples usuarios)
 export const asignarDocumentoAUsuario = async (req: Request, res: Response): Promise<void> => {
   try {

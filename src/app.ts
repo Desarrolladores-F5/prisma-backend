@@ -72,6 +72,14 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 
+// 🔒 Las constancias documentales no se publican como archivos estáticos.
+// Su descarga deberá realizarse mediante una ruta autenticada y autorizada.
+app.use('/uploads/confirmaciones', (_req, res) => {
+  res.status(403).json({
+    mensaje: 'Acceso directo a constancias documentales no permitido.',
+  });
+});
+
 app.use(
   '/uploads',
   express.static(path.join(__dirname, '../uploads'))

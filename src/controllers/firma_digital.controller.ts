@@ -51,6 +51,41 @@ export const crearFirma = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
+    if (
+      tipo_firma === 'firma_documento' &&
+      metadata?.entidad !== 'documento'
+    ) {
+      res.status(400).json({
+        mensaje: 'Una firma documental debe estar asociada a un documento válido.',
+      });
+      return;
+    }
+
+    if (metadata?.entidad === 'documento') {
+      const documentoId = Number(metadata?.entidad_id);
+
+      if (!Number.isSafeInteger(documentoId) || documentoId <= 0) {
+        res.status(400).json({
+          mensaje: 'Identificador de documento inválido.',
+        });
+        return;
+      }
+
+      const asignacion = await RelDocumentoUsuario.findOne({
+        where: {
+          documento_id: documentoId,
+          usuario_id: usuarioAutenticadoId,
+        },
+      });
+
+      if (!asignacion) {
+        res.status(403).json({
+          mensaje: 'No tienes autorización para firmar este documento.',
+        });
+        return;
+      }
+    }
+
     console.log('📥 Datos de firma recibidos:', {
       firmante_id,
       hash_firma,

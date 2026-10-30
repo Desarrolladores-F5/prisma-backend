@@ -184,7 +184,7 @@ export const obtenerMisDocumentos = async (req: Request, res: Response): Promise
           association: 'asignaciones',
           where: { usuario_id: usuario.id }, // 🔸 sin condición de 'activo'
           required: true,
-          attributes: ['fecha_asignacion', 'recepcionado', 'fecha_recepcion', 'ruta_constancia_pdf'],
+          attributes: ['id', 'fecha_asignacion', 'recepcionado', 'fecha_recepcion', 'ruta_constancia_pdf'],
         },
       ],
     });
@@ -194,6 +194,7 @@ export const obtenerMisDocumentos = async (req: Request, res: Response): Promise
         const a = doc.asignaciones[0];
         return {
           id: doc.id,
+          asignacion_id: a?.id ?? null,
           nombre: doc.nombre,
           tipo: doc.tipo,
           url: doc.url,
