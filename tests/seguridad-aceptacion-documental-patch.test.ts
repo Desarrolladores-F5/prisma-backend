@@ -4,37 +4,45 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 
 vi.mock('../src/models', () => ({
-  RelDocumentoUsuario: {
-    findOne: vi.fn(),
-  },
+  RelDocumentoUsuario: {},
   Usuario: {},
   Documento: {},
-  FirmaDigital: {
-    create: vi.fn(),
-  },
+  FirmaDigital: {},
 }));
 
-vi.mock('../src/utils/pdf', () => ({
-  generarPDFConfirmacion: vi.fn(),
-}));
+vi.mock('../src/services/recepcionDocumental.service', () => {
+  class ErrorRecepcionDocumental extends Error {
+    constructor(
+      public readonly estadoHttp: number,
+      mensaje: string
+    ) {
+      super(mensaje);
+      this.name = 'ErrorRecepcionDocumental';
+    }
+  }
 
-import { RelDocumentoUsuario, FirmaDigital } from '../src/models';
-import { generarPDFConfirmacion } from '../src/utils/pdf';
+  return {
+    confirmarRecepcionDocumental: vi.fn(),
+    ErrorRecepcionDocumental,
+  };
+});
+
+import {
+  confirmarRecepcionDocumental,
+  ErrorRecepcionDocumental,
+} from '../src/services/recepcionDocumental.service';
 import { validarToken } from '../src/middlewares/validarToken';
 import { confirmarRecepcion } from '../src/controllers/rel_documentos_usuarios.controller';
 
-describe('Seguridad - aceptación documental en ruta PATCH', () => {
+describe('Seguridad - aceptación documental PATCH', () => {
   const secreto = 'clave-exclusiva-pruebas-patch';
   const secretoAnterior = process.env.JWT_SECRET;
+  const ruta = '/api/rel-documentos-usuarios/confirmar/45';
+  const constancia = '/uploads/confirmaciones/constancia-ficticia.pdf';
 
   const app = express();
   app.use(express.json());
-
-  app.patch(
-    '/api/rel-documentos-usuarios/confirmar/:documento_id',
-    validarToken,
-    confirmarRecepcion
-  );
+  app.patch('/api/rel-documentos-usuarios/confirmar/:documento_id', validarToken, confirmarRecepcion);
 
   const tokenTrabajador = jwt.sign(
     { id: 12, rol_id: 3 },
@@ -44,10 +52,7 @@ describe('Seguridad - aceptación documental en ruta PATCH', () => {
 
   beforeEach(() => {
     process.env.JWT_SECRET = secreto;
-    vi.clearAllMocks();
-
-    // Eliminar respuestas pendientes de pruebas anteriores.
-    vi.mocked(RelDocumentoUsuario.findOne).mockReset();
+    vi.resetAllMocks();
   });
 
   afterAll(() => {
@@ -58,80 +63,70 @@ describe('Seguridad - aceptación documental en ruta PATCH', () => {
     }
   });
 
-  const prepararRelacion = (recepcionado = false) => {
-    const guardar = vi.fn().mockResolvedValue(undefined);
-
-    vi.mocked(RelDocumentoUsuario.findOne).mockResolvedValueOnce({
-      id: 8,
-      usuario_id: 12,
-      documento_id: 45,
-      recepcionado,
-      documento: {
-        nombre: 'Procedimiento de prueba',
-        tipo: 'Seguridad',
-      },
-      usuario: {
-        nombre: 'Trabajador',
-        apellido: 'Prueba',
-        correo: 'prueba@example.test',
-      },
-      save: guardar,
-    } as any);
-
-    return guardar;
-  };
-
   it.each([
     ['sin aceptación', {}],
-    ['con aceptación rechazada', { acepta_declaracion: false }],
+    ['aceptación rechazada', { acepta_declaracion: false }],
+    ['aceptación como texto', { acepta_declaracion: 'true' }],
   ])('rechaza confirmación %s', async (_caso, cuerpo) => {
-    const guardar = prepararRelacion();
-
     const respuesta = await request(app)
-      .patch('/api/rel-documentos-usuarios/confirmar/45')
+      .patch(ruta)
       .set('Authorization', `Bearer ${tokenTrabajador}`)
       .send(cuerpo);
 
     expect(respuesta.status).toBe(400);
-    expect(generarPDFConfirmacion).not.toHaveBeenCalled();
-    expect(FirmaDigital.create).not.toHaveBeenCalled();
-    expect(guardar).not.toHaveBeenCalled();
+    expect(confirmarRecepcionDocumental).not.toHaveBeenCalled();
   });
 
   it('permite confirmar con aceptación expresa', async () => {
-    const guardar = prepararRelacion(false);
-
-    vi.mocked(generarPDFConfirmacion).mockResolvedValueOnce(
-      '/uploads/confirmaciones/constancia-ficticia.pdf'
-    );
-
-    vi.mocked(FirmaDigital.create).mockResolvedValueOnce({
-      id: 99,
-      firmante_id: 12,
-    } as any);
+    vi.mocked(confirmarRecepcionDocumental).mockResolvedValueOnce({
+      ruta_constancia_pdf: constancia,
+    });
 
     const respuesta = await request(app)
-      .patch('/api/rel-documentos-usuarios/confirmar/45')
+      .patch(ruta)
       .set('Authorization', `Bearer ${tokenTrabajador}`)
       .send({ acepta_declaracion: true });
 
     expect(respuesta.status).toBe(200);
-    expect(generarPDFConfirmacion).toHaveBeenCalledOnce();
-    expect(guardar).toHaveBeenCalledOnce();
-    expect(FirmaDigital.create).toHaveBeenCalledOnce();
+    expect(respuesta.body.ruta_constancia_pdf).toBe(constancia);
+    expect(respuesta.body.constancia_url).toBe(constancia);
+    expect(confirmarRecepcionDocumental).toHaveBeenCalledExactlyOnceWith({
+      documentoId: 45,
+      usuarioId: 12,
+      aceptaDeclaracion: true,
+    });
   });
 
   it('impide confirmar nuevamente un documento recepcionado', async () => {
-    const guardar = prepararRelacion(true);
+    vi.mocked(confirmarRecepcionDocumental).mockRejectedValueOnce(
+      new ErrorRecepcionDocumental(409, 'El documento ya fue recepcionado.')
+    );
 
     const respuesta = await request(app)
-      .patch('/api/rel-documentos-usuarios/confirmar/45')
+      .patch(ruta)
       .set('Authorization', `Bearer ${tokenTrabajador}`)
       .send({ acepta_declaracion: true });
 
     expect(respuesta.status).toBe(409);
-    expect(generarPDFConfirmacion).not.toHaveBeenCalled();
-    expect(FirmaDigital.create).not.toHaveBeenCalled();
-    expect(guardar).not.toHaveBeenCalled();
+    expect(confirmarRecepcionDocumental).toHaveBeenCalledOnce();
+  });
+
+  it('rechaza solicitudes sin autenticación', async () => {
+    const respuesta = await request(app)
+      .patch(ruta)
+      .send({ acepta_declaracion: true });
+
+    expect(respuesta.status).toBe(401);
+    expect(confirmarRecepcionDocumental).not.toHaveBeenCalled();
+  });
+
+  it('rechaza identificadores de documento inválidos', async () => {
+    const respuesta = await request(app)
+      .patch('/api/rel-documentos-usuarios/confirmar/abc')
+      .set('Authorization', `Bearer ${tokenTrabajador}`)
+      .send({ acepta_declaracion: true });
+
+    expect(respuesta.status).toBe(400);
+    expect(confirmarRecepcionDocumental).not.toHaveBeenCalled();
   });
 });

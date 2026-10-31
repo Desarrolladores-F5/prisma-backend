@@ -1,7 +1,7 @@
 // src/controllers/documento.controller.ts
 import { Request, Response } from 'express';
 import { Documento, RelDocumentoUsuario, Usuario } from '../models';
-import { generarPDFConfirmacion } from '../utils/pdf';
+import { confirmarRecepcionDocumental, ErrorRecepcionDocumental } from '../services/recepcionDocumental.service';
 
 /** Normaliza y valida que la URL pertenezca a /uploads/... */
 function normalizeUploadPath(raw?: string): string | undefined {
@@ -229,10 +229,19 @@ export const obtenerDocumentoPorId = async (req: Request, res: Response): Promis
 
 /** Confirmar recepción de documento y generar constancia PDF */
 export const confirmarRecepcionDocumento = async (req: Request, res: Response): Promise<void> => {
-  const usuario = (req as any).usuario;
+  const usuarioId = Number((req as any).usuario?.id);
   const documentoId = Number(req.params.documentoId);
 
-  // La aceptación debe ser expresa y estrictamente booleana.
+  if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+    res.status(401).json({ mensaje: 'Usuario no autenticado' });
+    return;
+  }
+
+  if (!Number.isSafeInteger(documentoId) || documentoId <= 0) {
+    res.status(400).json({ mensaje: 'Documento inválido' });
+    return;
+  }
+
   if (req.body?.acepta_declaracion !== true) {
     res.status(400).json({
       mensaje: 'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
@@ -240,56 +249,26 @@ export const confirmarRecepcionDocumento = async (req: Request, res: Response): 
     return;
   }
 
-  if (!usuario?.id || !documentoId) {
-    res.status(400).json({ mensaje: '❌ Datos inválidos' });
-    return;
-  }
-
   try {
-    const relacion = await RelDocumentoUsuario.findOne({
-      where: { usuario_id: usuario.id, documento_id: documentoId },
-      include: [
-        { model: Usuario, as: 'usuario' },
-        { model: Documento, as: 'documento' },
-      ],
-    });
-
-    if (!relacion) {
-      res.status(404).json({ mensaje: '❌ Asignación no encontrada' });
-      return;
-    }
-
-    if (relacion.recepcionado) {
-      res.status(409).json({ mensaje: '⚠️ Documento ya confirmado' });
-      return;
-    }
-
-    if (!relacion.usuario || !relacion.documento) {
-      res.status(500).json({ mensaje: '❌ Datos incompletos para generar constancia' });
-      return;
-    }
-
-    relacion.recepcionado = true;
-    relacion.fecha_recepcion = new Date();
-
-    const rutaRelativa = await generarPDFConfirmacion({
-      documento: relacion.documento,
-      usuario: relacion.usuario,
-      fecha: relacion.fecha_recepcion,
+    const resultado = await confirmarRecepcionDocumental({
       documentoId,
-      usuarioId: usuario.id,
+      usuarioId,
+      aceptaDeclaracion: true,
     });
-
-    relacion.ruta_constancia_pdf = rutaRelativa;
-    await relacion.save();
 
     res.status(200).json({
       mensaje: '✅ Documento recepcionado y constancia generada',
-      constancia_url: rutaRelativa,
+      constancia_url: resultado.ruta_constancia_pdf,
+      ruta_constancia_pdf: resultado.ruta_constancia_pdf,
     });
   } catch (error) {
+    if (error instanceof ErrorRecepcionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
     console.error('❌ Error al confirmar recepción:', error);
-    res.status(500).json({ mensaje: '❌ Error al confirmar recepción del documento', error });
+    res.status(500).json({ mensaje: 'Error al confirmar recepción del documento' });
   }
 };
 

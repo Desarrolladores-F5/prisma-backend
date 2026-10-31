@@ -19,18 +19,24 @@ import fs from 'fs';
 import { generarPDFConfirmacion } from '../src/utils/pdf';
 
 describe('Seguridad del generador de constancias PDF', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('permite simular PDFKit y el sistema de archivos sin generar PDF reales', () => {
     expect(vi.isMockFunction(PDFDocument)).toBe(true);
     expect(vi.isMockFunction(fs.createWriteStream)).toBe(true);
     expect(vi.isMockFunction(fs.mkdirSync)).toBe(true);
   });
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it('limpia el PDF parcial cuando falla la escritura', async () => {
-    const stream = new EventEmitter();
+    const stream = Object.assign(new EventEmitter(), {
+      destroyed: false,
+      destroy: vi.fn(function (this: any) {
+        this.destroyed = true;
+        return this;
+      }),
+    });
 
     vi.mocked(fs.createWriteStream).mockReturnValueOnce(stream as any);
 
@@ -42,6 +48,7 @@ describe('Seguridad del generador de constancias PDF', () => {
       moveDown: vi.fn().mockReturnThis(),
       end: vi.fn(() => {
         queueMicrotask(() => {
+          stream.emit('open', 123);
           stream.emit('error', new Error('Error simulado de escritura'));
         });
       }),
@@ -70,11 +77,12 @@ describe('Seguridad del generador de constancias PDF', () => {
       })
     ).rejects.toThrow('Error al generar constancia PDF');
 
+    expect(stream.destroy).toHaveBeenCalledOnce();
+
     expect(fs.promises.unlink).toHaveBeenCalledExactlyOnceWith(
       expect.stringMatching(
         /[/\\]uploads[/\\]confirmaciones[/\\]confirmacion_doc_45_usuario_12_.*\.pdf$/
       )
     );
   });
-
 });

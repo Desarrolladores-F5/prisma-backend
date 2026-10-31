@@ -1,7 +1,7 @@
 // src/controllers/rel_documentos_usuarios.controller.ts
 import { Request, Response } from 'express';
 import { RelDocumentoUsuario, Usuario, Documento, FirmaDigital } from '../models';
-import { generarPDFConfirmacion } from '../utils/pdf';
+import { confirmarRecepcionDocumental, ErrorRecepcionDocumental } from '../services/recepcionDocumental.service';
 import crypto from 'crypto';
 
 
@@ -252,94 +252,45 @@ export const obtenerConfirmacionesPorDocumento = async (req: Request, res: Respo
 
 // ✅ Confirmar recepción, generar PDF y registrar firma digital
 export const confirmarRecepcion = async (req: Request, res: Response): Promise<void> => {
+  const usuarioId = Number((req as any).usuario?.id);
+  const documentoId = Number(req.params.documento_id);
+
+  if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+    res.status(401).json({ mensaje: 'Usuario no autenticado' });
+    return;
+  }
+
+  if (!Number.isSafeInteger(documentoId) || documentoId <= 0) {
+    res.status(400).json({ mensaje: 'Documento inválido' });
+    return;
+  }
+
+  if (req.body?.acepta_declaracion !== true) {
+    res.status(400).json({
+      mensaje: 'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
+    });
+    return;
+  }
+
   try {
-    const { documento_id } = req.params;
-    const usuario_id = (req as any).usuario?.id;
-
-    if (!usuario_id) {
-      res.status(401).json({ mensaje: 'Usuario no autenticado' });
-      return;
-    }
-
-    // La recepción documental requiere aceptación expresa.
-    if (req.body?.acepta_declaracion !== true) {
-      res.status(400).json({
-        mensaje: 'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
-      });
-      return;
-    }
-
-    const relacion = await RelDocumentoUsuario.findOne({
-      where: { documento_id, usuario_id },
-      include: [
-        { model: Documento, as: 'documento' },
-        { model: Usuario, as: 'usuario' },
-      ],
-    });
-
-    if (!relacion || !relacion.documento || !relacion.usuario) {
-      res.status(404).json({ mensaje: 'No se encontró la relación con datos completos.' });
-      return;
-    }
-
-    // Evitar generar constancias y firmas duplicadas.
-    if (relacion.recepcionado) {
-      res.status(409).json({
-        mensaje: 'El documento ya fue confirmado anteriormente.',
-      });
-      return;
-    }
-
-    const fecha = new Date();
-
-    const rutaPDF = await generarPDFConfirmacion({
-      documento: {
-        nombre: relacion.documento.nombre,
-        tipo: relacion.documento.tipo,
-        version: relacion.documento.version || undefined,
-      },
-      usuario: {
-        nombre: relacion.usuario.nombre,
-        apellido: relacion.usuario.apellido,
-        correo: relacion.usuario.correo,
-        firma_imagen_url: relacion.usuario.firma_imagen_url || undefined,
-      },
-      fecha,
-      documentoId: parseInt(documento_id),
-      usuarioId: usuario_id,
-    });
-
-    relacion.recepcionado = true;
-    relacion.fecha_recepcion = fecha;
-    relacion.ruta_constancia_pdf = rutaPDF;
-    await relacion.save();
-
-    // ✅ Firma Digital
-    const hashFirma = crypto
-      .createHash('sha256')
-      .update(`${documento_id}-${usuario_id}-${fecha.toISOString()}`)
-      .digest('hex');
-
-    await FirmaDigital.create({
-      firmante_id: usuario_id,
-      hash_firma: hashFirma,
-      tipo_firma: 'firma_documento',
-      metadata: {
-        entidad: 'documento',
-        entidad_id: documento_id,
-        relacion_id: relacion.id,
-        ruta_constancia_pdf: rutaPDF,
-        navegador: req.headers['user-agent'],
-        fecha: fecha.toISOString(),
-      },
+    const resultado = await confirmarRecepcionDocumental({
+      documentoId,
+      usuarioId,
+      aceptaDeclaracion: true,
     });
 
     res.status(200).json({
       mensaje: '✅ Recepción confirmada, constancia generada y firma registrada.',
-      ruta_constancia_pdf: rutaPDF,
+      ruta_constancia_pdf: resultado.ruta_constancia_pdf,
+      constancia_url: resultado.ruta_constancia_pdf,
     });
   } catch (error) {
+    if (error instanceof ErrorRecepcionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
     console.error('❌ Error al confirmar recepción:', error);
-    res.status(500).json({ mensaje: '❌ Error al confirmar recepción', error });
+    res.status(500).json({ mensaje: 'Error al confirmar recepción' });
   }
 };

@@ -21,6 +21,9 @@ vi.mock('../src/models', () => ({
 
 vi.mock('../src/utils/pdf', () => ({
   generarPDFConfirmacion: vi.fn(),
+  resolverDirectorioConstancias: vi.fn(
+    () => '/tmp/prisma-test-documental'
+  ),
 }));
 
 import { sequelize, RelDocumentoUsuario, FirmaDigital } from '../src/models';
@@ -161,7 +164,7 @@ describe('Servicio unificado de recepción documental', () => {
     // Solo se debe limpiar la constancia recién generada.
     expect(fs.unlink).toHaveBeenCalledExactlyOnceWith(
       expect.stringMatching(
-        /[/\\]uploads[/\\]confirmaciones[/\\]confirmacion_doc_45_usuario_12_1234567890\.pdf$/
+        /[/\\]prisma-test-documental[/\\]confirmacion_doc_45_usuario_12_1234567890\.pdf$/
       )
     );
   });
