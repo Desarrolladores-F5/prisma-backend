@@ -19,10 +19,10 @@ const router = Router();
 router.get('/', validarToken, autorizarRol(1, 2), obtenerNotificaciones);
 
 // 🔹 Trabajador: Obtener solo sus notificaciones personales
-router.get('/mis-notificaciones', validarToken, autorizarRol(3), obtenerMisNotificaciones);
+router.get('/mis-notificaciones', validarToken, obtenerMisNotificaciones);
 
 // 🔹 Trabajador: Marcar notificación como leída
-router.put('/:id/leido', validarToken, autorizarRol(3), marcarComoLeida);
+router.put('/:id/leido', validarToken, marcarComoLeida);
 
 // 🔐 Solo Administrador puede crear, actualizar y eliminar notificaciones
 router.post('/', validarToken, esAdministrador, crearNotificacion);

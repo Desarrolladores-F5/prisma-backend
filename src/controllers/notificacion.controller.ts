@@ -93,9 +93,26 @@ export const obtenerMisNotificaciones = async (req: Request, res: Response): Pro
 // Marcar una notificación como leída (uso del trabajador)
 export const marcarComoLeida = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const usuarioId = Number(req.usuario?.id);
+    const notificacionId = Number(req.params.id);
 
-    const notificacion = await Notificacion.findByPk(id);
+    if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado' });
+      return;
+    }
+
+    if (!Number.isSafeInteger(notificacionId) || notificacionId <= 0) {
+      res.status(400).json({ mensaje: 'Identificador de notificación inválido' });
+      return;
+    }
+
+    const notificacion = await Notificacion.findOne({
+      where: {
+        id: notificacionId,
+        usuario_id: usuarioId,
+        activo: true,
+      },
+    });
 
     if (!notificacion) {
       res.status(404).json({ mensaje: 'Notificación no encontrada' });

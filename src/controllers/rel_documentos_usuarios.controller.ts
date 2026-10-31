@@ -3,6 +3,13 @@ import { Request, Response } from 'express';
 import { RelDocumentoUsuario, Usuario, Documento, FirmaDigital } from '../models';
 import { confirmarRecepcionDocumental, ErrorRecepcionDocumental } from '../services/recepcionDocumental.service';
 import crypto from 'crypto';
+import {
+  ejecutarAsignacionDocumental,
+} from '../services/coordinadorAsignacionesDocumentales.service';
+import {
+  ErrorAsignacionDocumental,
+} from '../services/asignacionDocumental.service';
+
 
 
 // 🔒 Descarga autorizada de constancias documentales
@@ -98,62 +105,67 @@ export const descargarConstancia = async (req: Request, res: Response): Promise<
   }
 };
 
-// ✅ Asignar documento (uno o múltiples usuarios)
-export const asignarDocumentoAUsuario = async (req: Request, res: Response): Promise<void> => {
+// ✅ Asignar documentos de forma segura y notificar a los destinatarios
+export const asignarDocumentoAUsuario = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
+    const administradorId = Number((req as any).usuario?.id);
     const { documento_id, asignacion_tipo, rol_id, usuario_ids } = req.body;
 
-    if (!documento_id || !asignacion_tipo) {
-      res.status(400).json({ mensaje: 'Faltan parámetros requeridos.' });
+    const documentoId = Number(documento_id);
+
+    if (
+      !Number.isSafeInteger(administradorId) ||
+      administradorId <= 0
+    ) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
       return;
     }
 
-    if (asignacion_tipo === 'todos' || asignacion_tipo === 'rol') {
-      if (!rol_id) {
-        res.status(400).json({ mensaje: 'Debe especificar un rol para la asignación.' });
-        return;
-      }
-
-      // Si tu modelo Usuario mantiene "activo", puedes seguir filtrando por ahí.
-      const usuarios = await Usuario.findAll({
-        where: { activo: true, rol_id },
-      });
-
-      if (!usuarios.length) {
-        res.status(404).json({ mensaje: 'No se encontraron usuarios activos con ese rol.' });
-        return;
-      }
-
-      const relaciones = usuarios.map((u) => ({
-        documento_id,
-        usuario_id: u.id,
-        fecha_asignacion: new Date(),
-      }));
-
-      await RelDocumentoUsuario.bulkCreate(relaciones, { ignoreDuplicates: true });
-
-      res.status(201).json({ mensaje: `✅ Documento asignado a ${usuarios.length} usuario(s) con rol.` });
-    } else if (asignacion_tipo === 'usuarios') {
-      if (!usuario_ids || !Array.isArray(usuario_ids) || usuario_ids.length === 0) {
-        res.status(400).json({ mensaje: 'Debe especificar al menos un ID de usuario.' });
-        return;
-      }
-
-      const relaciones = usuario_ids.map((id: number) => ({
-        documento_id,
-        usuario_id: id,
-        fecha_asignacion: new Date(),
-      }));
-
-      await RelDocumentoUsuario.bulkCreate(relaciones, { ignoreDuplicates: true });
-
-      res.status(201).json({ mensaje: '✅ Documento asignado a los usuarios seleccionados.' });
-    } else {
-      res.status(400).json({ mensaje: 'Tipo de asignación no válido.' });
+    if (
+      !Number.isSafeInteger(documentoId) ||
+      documentoId <= 0
+    ) {
+      res.status(400).json({ mensaje: 'Documento inválido.' });
+      return;
     }
+
+    const documento = await Documento.findByPk(documentoId);
+
+    if (!documento) {
+      res.status(404).json({ mensaje: 'Documento no encontrado.' });
+      return;
+    }
+
+    const nuevas = await ejecutarAsignacionDocumental({
+      administradorId,
+      documentoId,
+      nombreDocumento: documento.nombre,
+      asignacionTipo: asignacion_tipo,
+      usuarioIds: usuario_ids,
+      rolId: rol_id,
+    });
+
+    res.status(nuevas.length > 0 ? 201 : 200).json({
+      mensaje:
+        nuevas.length > 0
+          ? 'Documento asignado correctamente.'
+          : 'El documento ya estaba asignado a los destinatarios.',
+      asignaciones_nuevas: nuevas.length,
+    });
   } catch (error) {
-    console.error('❌ Error al asignar documento:', error);
-    res.status(500).json({ mensaje: '❌ Error al asignar documento', error });
+    if (error instanceof ErrorAsignacionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
+    console.error('Error al asignar documentos:', error);
+
+    res.status(500).json({
+      mensaje: 'No fue posible completar la asignación documental.',
+    });
   }
 };
 

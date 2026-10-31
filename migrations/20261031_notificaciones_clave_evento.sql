@@ -1,0 +1,20 @@
+-- PRISMA: protección contra notificaciones duplicadas.
+--
+-- ESTADO LOCAL (31-10-2026):
+--   Columna clave_evento: aplicada.
+--   Índice uq_notificaciones_usuario_evento: aplicado y verificado.
+--
+-- Este archivo documenta la estructura requerida.
+-- No ejecutar automáticamente sobre una base ya migrada.
+--
+-- Para futuros despliegues, crear una migración controlada
+-- que verifique el esquema de la base de destino.
+
+-- Estructura esperada:
+--
+-- clave_evento VARCHAR(191) NULL
+--
+-- UNIQUE INDEX uq_notificaciones_usuario_evento
+--   (usuario_id, clave_evento)
+--
+-- Los registros históricos conservan clave_evento = NULL.

@@ -1,5 +1,12 @@
 // src/controllers/documento.controller.ts
 import { Request, Response } from 'express';
+import {
+  crearDocumentoConAsignaciones,
+} from '../services/creacionDocumental.service';
+import {
+  ErrorAsignacionDocumental,
+} from '../services/asignacionDocumental.service';
+
 import { Documento, RelDocumentoUsuario, Usuario } from '../models';
 import { confirmarRecepcionDocumental, ErrorRecepcionDocumental } from '../services/recepcionDocumental.service';
 
@@ -33,86 +40,109 @@ export const obtenerDocumentos = async (_req: Request, res: Response): Promise<v
   }
 };
 
-/** Crear documento y asignarlo según criterio */
-export const crearDocumento = async (req: Request, res: Response): Promise<void> => {
+/** Crear documento, opcionalmente con asignación transaccional */
+export const crearDocumento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
+    const administradorId = Number((req as any).usuario?.id);
+
+    if (!Number.isSafeInteger(administradorId) || administradorId <= 0) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
+      return;
+    }
+
     const {
       nombre,
       tipo,
       url,
       version,
       asignacion_tipo,
-      usuario_ids = [],
+      usuario_ids,
       rol_id,
-    } = req.body;
+    } = req.body ?? {};
 
-    const creador_id = (req as any).usuario?.id;
-    if (!creador_id) {
-      res.status(401).json({ mensaje: '❌ Usuario no autenticado' });
+    if (
+      typeof nombre !== 'string' ||
+      typeof tipo !== 'string' ||
+      typeof url !== 'string' ||
+      typeof version !== 'string' ||
+      !nombre.trim() ||
+      !tipo.trim() ||
+      !url.trim() ||
+      !version.trim()
+    ) {
+      res.status(400).json({
+        mensaje: 'Faltan datos obligatorios del documento.',
+      });
       return;
     }
 
-    if (!nombre || !tipo || !url || !version || !asignacion_tipo) {
-      res.status(400).json({ mensaje: '❌ Faltan campos requeridos' });
+    let urlNormalizada: string | undefined;
+
+    try {
+      urlNormalizada = normalizeUploadPath(url);
+    } catch {
+      res.status(400).json({
+        mensaje: 'URL del documento inválida.',
+      });
       return;
     }
 
-    const urlNormalizada = normalizeUploadPath(url);
-
-    const nuevoDocumento = await Documento.create({
-      nombre,
-      tipo,
-      url: urlNormalizada!,
-      version,
-    });
-
-    // Asignaciones
-    let usuariosAsignados: number[] = [];
-    switch (asignacion_tipo) {
-      case 'todos': {
-        const usuarios = await Usuario.findAll({ where: { /* si tienes 'activo' en usuarios, puedes filtrar aquí */ } });
-        usuariosAsignados = usuarios.map(u => u.id);
-        break;
-      }
-      case 'rol': {
-        if (!rol_id) {
-          res.status(400).json({ mensaje: '❌ Falta rol_id' });
-          return;
-        }
-        const usuarios = await Usuario.findAll({ where: { rol_id } });
-        usuariosAsignados = usuarios.map(u => u.id);
-        break;
-      }
-      case 'usuarios': {
-        if (!Array.isArray(usuario_ids)) {
-          res.status(400).json({ mensaje: '❌ usuario_ids debe ser un arreglo' });
-          return;
-        }
-        usuariosAsignados = usuario_ids;
-        break;
-      }
-      default:
-        res.status(400).json({ mensaje: '❌ Tipo de asignación inválido' });
-        return;
+    if (!urlNormalizada) {
+      res.status(400).json({
+        mensaje: 'URL del documento inválida.',
+      });
+      return;
     }
 
-    if (usuariosAsignados.length > 0) {
-      await RelDocumentoUsuario.bulkCreate(
-        usuariosAsignados.map(usuario_id => ({
-          documento_id: nuevoDocumento.id,
-          usuario_id,
-          fecha_asignacion: new Date(),
-        }))
-      );
+    const datosDocumento = {
+      nombre: nombre.trim(),
+      tipo: tipo.trim(),
+      url: urlNormalizada,
+      version: version.trim(),
+    };
+
+    const hayAsignacion = asignacion_tipo !== undefined &&
+      asignacion_tipo !== null;
+
+    if (!hayAsignacion &&
+        (usuario_ids !== undefined || rol_id !== undefined)) {
+      res.status(400).json({
+        mensaje: 'Debe indicar el tipo de asignación.',
+      });
+      return;
     }
+
+    const documento = hayAsignacion
+      ? await crearDocumentoConAsignaciones({
+          administradorId,
+          ...datosDocumento,
+          asignacionTipo: asignacion_tipo,
+          usuarioIds: usuario_ids,
+          rolId: rol_id,
+        })
+      : await Documento.create(datosDocumento);
 
     res.status(201).json({
-      mensaje: '✅ Documento creado y asignado correctamente',
-      documento: nuevoDocumento,
+      mensaje: hayAsignacion
+        ? 'Documento creado y asignado correctamente.'
+        : 'Documento creado correctamente.',
+      id: documento.id,
+      documento,
     });
-  } catch (error: any) {
-    console.error('❌ Error al crear documento:', error);
-    res.status(500).json({ mensaje: `❌ ${error?.message || 'Error al crear documento'}`, error });
+  } catch (error) {
+    if (error instanceof ErrorAsignacionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
+    console.error('Error al crear documento:', error);
+
+    res.status(500).json({
+      mensaje: 'No fue posible crear el documento.',
+    });
   }
 };
 

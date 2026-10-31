@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { avisarRecepcionDocumental } from './notificacionesAutomaticas.service';
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
 import {
@@ -150,6 +151,21 @@ export const confirmarRecepcionDocumental = async ({
     commitIniciado = true;
 
     await transaccion.commit();
+
+    // La recepción ya quedó confirmada.
+    // Un fallo al notificar nunca debe invalidar la firma ni la constancia.
+    try {
+      await avisarRecepcionDocumental({
+        usuarioId,
+        documentoId,
+        nombreDocumento: relacion.documento.nombre,
+      });
+    } catch (errorNotificacion) {
+      console.error(
+        'Recepción confirmada, pero no fue posible generar las notificaciones:',
+        errorNotificacion
+      );
+    }
 
     return {
       ruta_constancia_pdf: rutaPDF,

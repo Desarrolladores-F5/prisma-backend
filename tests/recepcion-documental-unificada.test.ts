@@ -19,6 +19,10 @@ vi.mock('../src/models', () => ({
   Usuario: {},
 }));
 
+vi.mock('../src/services/notificacionesAutomaticas.service', () => ({
+  avisarRecepcionDocumental: vi.fn(),
+}));
+
 vi.mock('../src/utils/pdf', () => ({
   generarPDFConfirmacion: vi.fn(),
   resolverDirectorioConstancias: vi.fn(
@@ -29,6 +33,7 @@ vi.mock('../src/utils/pdf', () => ({
 import { sequelize, RelDocumentoUsuario, FirmaDigital } from '../src/models';
 import { generarPDFConfirmacion } from '../src/utils/pdf';
 import { confirmarRecepcionDocumental } from '../src/services/recepcionDocumental.service';
+import { avisarRecepcionDocumental } from '../src/services/notificacionesAutomaticas.service';
 
 describe('Servicio unificado de recepción documental', () => {
   beforeEach(() => {
@@ -110,6 +115,18 @@ describe('Servicio unificado de recepción documental', () => {
     expect(FirmaDigital.create).toHaveBeenCalledOnce();
     expect(transaccion.commit).toHaveBeenCalledOnce();
     expect(transaccion.rollback).not.toHaveBeenCalled();
+
+    expect(avisarRecepcionDocumental).toHaveBeenCalledExactlyOnceWith({
+      usuarioId: 12,
+      documentoId: 45,
+      nombreDocumento: 'Procedimiento de prueba',
+    });
+
+    expect(
+      vi.mocked(transaccion.commit).mock.invocationCallOrder[0]
+    ).toBeLessThan(
+      vi.mocked(avisarRecepcionDocumental).mock.invocationCallOrder[0]
+    );
   });
 
   it('revierte la transacción cuando falla el registro de la firma', async () => {
@@ -436,4 +453,124 @@ describe('Servicio unificado de recepción documental', () => {
     );
   });
 
+});
+
+
+describe('Protección de avisos posteriores a la recepción', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('conserva la recepción confirmada cuando falla la notificación', async () => {
+    const transaccion = {
+      commit: vi.fn().mockResolvedValue(undefined),
+      rollback: vi.fn().mockResolvedValue(undefined),
+      LOCK: { UPDATE: 'UPDATE' },
+    };
+
+    vi.mocked(sequelize.transaction).mockResolvedValueOnce(transaccion as any);
+
+    const guardar = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(RelDocumentoUsuario.findOne).mockResolvedValueOnce({
+      id: 8,
+      documento_id: 45,
+      usuario_id: 12,
+      recepcionado: false,
+      documento: {
+        nombre: 'Procedimiento de prueba',
+        tipo: 'Seguridad',
+      },
+      usuario: {
+        nombre: 'Trabajador',
+        apellido: 'Prueba',
+        correo: 'prueba@example.test',
+      },
+      save: guardar,
+    } as any);
+
+    vi.mocked(generarPDFConfirmacion).mockResolvedValueOnce(
+      '/uploads/confirmaciones/confirmacion_doc_45_usuario_12_1234567890.pdf'
+    );
+
+    vi.mocked(FirmaDigital.create).mockResolvedValueOnce({
+      id: 99,
+    } as any);
+
+    vi.mocked(avisarRecepcionDocumental).mockRejectedValueOnce(
+      new Error('Fallo simulado del servicio de notificaciones')
+    );
+
+    const consola = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const resultado = await confirmarRecepcionDocumental({
+        documentoId: 45,
+        usuarioId: 12,
+        aceptaDeclaracion: true,
+      });
+
+      expect(resultado.ruta_constancia_pdf).toContain(
+        'confirmacion_doc_45_usuario_12_1234567890.pdf'
+      );
+
+      expect(guardar).toHaveBeenCalledOnce();
+      expect(FirmaDigital.create).toHaveBeenCalledOnce();
+      expect(transaccion.commit).toHaveBeenCalledOnce();
+      expect(transaccion.rollback).not.toHaveBeenCalled();
+      expect(fs.unlink).not.toHaveBeenCalled();
+      expect(avisarRecepcionDocumental).toHaveBeenCalledOnce();
+
+      expect(
+        vi.mocked(transaccion.commit).mock.invocationCallOrder[0]
+      ).toBeLessThan(
+        vi.mocked(avisarRecepcionDocumental).mock.invocationCallOrder[0]
+      );
+
+      expect(consola).toHaveBeenCalled();
+    } finally {
+      consola.mockRestore();
+    }
+  });
+
+  it('no genera avisos al intentar recepcionar nuevamente un documento', async () => {
+    const transaccion = {
+      commit: vi.fn(),
+      rollback: vi.fn().mockResolvedValue(undefined),
+      LOCK: { UPDATE: 'UPDATE' },
+    };
+
+    vi.mocked(sequelize.transaction).mockResolvedValueOnce(transaccion as any);
+
+    vi.mocked(RelDocumentoUsuario.findOne).mockResolvedValueOnce({
+      id: 8,
+      documento_id: 45,
+      usuario_id: 12,
+      recepcionado: true,
+      documento: {
+        nombre: 'Procedimiento de prueba',
+        tipo: 'Seguridad',
+      },
+      usuario: {
+        nombre: 'Trabajador',
+        apellido: 'Prueba',
+      },
+    } as any);
+
+    await expect(
+      confirmarRecepcionDocumental({
+        documentoId: 45,
+        usuarioId: 12,
+        aceptaDeclaracion: true,
+      })
+    ).rejects.toMatchObject({
+      estadoHttp: 409,
+    });
+
+    expect(transaccion.rollback).toHaveBeenCalledOnce();
+    expect(transaccion.commit).not.toHaveBeenCalled();
+    expect(FirmaDigital.create).not.toHaveBeenCalled();
+    expect(generarPDFConfirmacion).not.toHaveBeenCalled();
+    expect(avisarRecepcionDocumental).not.toHaveBeenCalled();
+  });
 });

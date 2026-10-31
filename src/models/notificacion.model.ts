@@ -7,6 +7,7 @@ export interface NotificacionAttributes {
   tipo: string;
   usuario_id: number;
   origen?: string;
+  clave_evento?: string | null;
   faena_id?: number;
   fecha?: Date;
   leido: boolean;
@@ -14,7 +15,7 @@ export interface NotificacionAttributes {
 }
 
 interface NotificacionCreationAttributes
-  extends Optional<NotificacionAttributes, 'id' | 'origen' | 'faena_id' | 'fecha'> {}
+  extends Optional<NotificacionAttributes, 'id' | 'origen' | 'clave_evento' | 'faena_id' | 'fecha'> {}
 
 export class NotificacionModel
   extends Model<NotificacionAttributes, NotificacionCreationAttributes>
@@ -24,6 +25,7 @@ export class NotificacionModel
   public tipo!: string;
   public usuario_id!: number;
   public origen?: string;
+  public clave_evento?: string | null;
   public faena_id?: number;
   public fecha!: Date;
   public leido!: boolean;
@@ -56,6 +58,10 @@ export const Notificacion = sequelize.define<NotificacionModel>('notificacion', 
   },
   origen: {
     type: DataTypes.STRING(100),
+    allowNull: true,
+  },
+  clave_evento: {
+    type: DataTypes.STRING(191),
     allowNull: true,
   },
   faena_id: {
