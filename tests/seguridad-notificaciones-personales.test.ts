@@ -7,7 +7,9 @@ vi.mock('../src/models', () => ({
     findAll: vi.fn(),
     findOne: vi.fn(),
   },
-  Usuario: {},
+  Usuario: {
+    findByPk: vi.fn(),
+  },
   Faena: {},
 }));
 
@@ -18,7 +20,7 @@ vi.mock('../src/middlewares/validarToken', () => ({
   },
 }));
 
-import { Notificacion } from '../src/models';
+import { Notificacion, Usuario } from '../src/models';
 import {
   obtenerMisNotificaciones,
   marcarComoLeida,
@@ -34,6 +36,11 @@ describe('Seguridad de notificaciones personales', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+
+    vi.mocked(Usuario.findByPk).mockResolvedValue({
+      id: 12,
+      activo: true,
+    } as any);
   });
 
   it('consulta exclusivamente las notificaciones del usuario autenticado', async () => {
@@ -42,19 +49,52 @@ describe('Seguridad de notificaciones personales', () => {
     const respuesta = await request(app).get('/mis-notificaciones');
 
     expect(respuesta.status).toBe(200);
+
+    expect(Usuario.findByPk).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({
+        attributes: ['id', 'activo'],
+      })
+    );
+
     expect(Notificacion.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { usuario_id: 12, activo: true },
+        where: {
+          usuario_id: 12,
+          activo: true,
+        },
       })
     );
   });
 
-  it('busca la notificación por ID y propietario', async () => {
+  it('impide consultar notificaciones a usuarios inactivos', async () => {
+    vi.mocked(Usuario.findByPk).mockResolvedValueOnce({
+      id: 12,
+      activo: false,
+    } as any);
+
+    const respuesta = await request(app).get('/mis-notificaciones');
+
+    expect(respuesta.status).toBe(403);
+    expect(Notificacion.findAll).not.toHaveBeenCalled();
+  });
+
+  it('impide consultar notificaciones a usuarios inexistentes', async () => {
+    vi.mocked(Usuario.findByPk).mockResolvedValueOnce(null);
+
+    const respuesta = await request(app).get('/mis-notificaciones');
+
+    expect(respuesta.status).toBe(403);
+    expect(Notificacion.findAll).not.toHaveBeenCalled();
+  });
+
+  it('busca notificaciones por ID y propietario', async () => {
     vi.mocked(Notificacion.findOne).mockResolvedValueOnce(null);
 
     const respuesta = await request(app).put('/45/leido');
 
     expect(respuesta.status).toBe(404);
+
     expect(Notificacion.findOne).toHaveBeenCalledWith({
       where: {
         id: 45,
@@ -86,5 +126,32 @@ describe('Seguridad de notificaciones personales', () => {
     expect(respuesta.status).toBe(200);
     expect(guardar).toHaveBeenCalledOnce();
     expect(respuesta.body.notificacion.leido).toBe(true);
+  });
+
+  it('impide marcar notificaciones cuando el usuario está inactivo', async () => {
+    vi.mocked(Usuario.findByPk).mockResolvedValueOnce({
+      id: 12,
+      activo: false,
+    } as any);
+
+    const respuesta = await request(app).put('/45/leido');
+
+    expect(respuesta.status).toBe(403);
+    expect(Notificacion.findOne).not.toHaveBeenCalled();
+  });
+
+  it('impide marcar como leídas notificaciones ajenas', async () => {
+    vi.mocked(Notificacion.findOne).mockResolvedValueOnce(null);
+
+    const respuesta = await request(app).put('/99/leido');
+
+    expect(respuesta.status).toBe(404);
+    expect(Notificacion.findOne).toHaveBeenCalledWith({
+      where: {
+        id: 99,
+        usuario_id: 12,
+        activo: true,
+      },
+    });
   });
 });

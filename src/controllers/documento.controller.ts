@@ -5,38 +5,68 @@ import {
 } from '../services/creacionDocumental.service';
 import {
   ErrorAsignacionDocumental,
+  obtenerEmpresaAdministrador,
 } from '../services/asignacionDocumental.service';
 
 import { Documento, RelDocumentoUsuario, Usuario } from '../models';
-import { confirmarRecepcionDocumental, ErrorRecepcionDocumental } from '../services/recepcionDocumental.service';
+import {
+  confirmarRecepcionDocumental,
+  ErrorRecepcionDocumental,
+} from '../services/recepcionDocumental.service';
 
 /** Normaliza y valida que la URL pertenezca a /uploads/... */
 function normalizeUploadPath(raw?: string): string | undefined {
   if (raw == null) return undefined;
-  // Si viene absoluta, extraemos el pathname
+
   try {
     const u = new URL(raw);
     const pathname = u.pathname || '';
+
     if (!pathname.startsWith('/uploads/')) {
       throw new Error('La URL debe comenzar con /uploads/');
     }
+
     return pathname;
   } catch {
-    // No era URL absoluta => validar relativa
     if (!raw.startsWith('/uploads/')) {
       throw new Error('La URL debe comenzar con /uploads/');
     }
+
     return raw;
   }
 }
 
-/** Obtener todos los documentos */
-export const obtenerDocumentos = async (_req: Request, res: Response): Promise<void> => {
+/** Obtener documentos de la empresa del administrador autenticado */
+export const obtenerDocumentos = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const documentos = await Documento.findAll();
+    const administradorId = Number((req as any).usuario?.id);
+
+    if (!Number.isSafeInteger(administradorId) || administradorId <= 0) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
+      return;
+    }
+
+    const empresaId = await obtenerEmpresaAdministrador(administradorId);
+
+    const documentos = await Documento.findAll({
+      where: { empresa_id: empresaId },
+    });
+
     res.json(documentos);
   } catch (error) {
-    res.status(500).json({ mensaje: '❌ Error al obtener documentos', error });
+    if (error instanceof ErrorAsignacionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
+    console.error('Error al obtener documentos:', error);
+
+    res.status(500).json({
+      mensaje: 'No fue posible obtener los documentos.',
+    });
   }
 };
 
@@ -104,11 +134,14 @@ export const crearDocumento = async (
       version: version.trim(),
     };
 
-    const hayAsignacion = asignacion_tipo !== undefined &&
+    const hayAsignacion =
+      asignacion_tipo !== undefined &&
       asignacion_tipo !== null;
 
-    if (!hayAsignacion &&
-        (usuario_ids !== undefined || rol_id !== undefined)) {
+    if (
+      !hayAsignacion &&
+      (usuario_ids !== undefined || rol_id !== undefined)
+    ) {
       res.status(400).json({
         mensaje: 'Debe indicar el tipo de asignación.',
       });
@@ -123,7 +156,10 @@ export const crearDocumento = async (
           usuarioIds: usuario_ids,
           rolId: rol_id,
         })
-      : await Documento.create(datosDocumento);
+      : await Documento.create({
+          ...datosDocumento,
+          empresa_id: await obtenerEmpresaAdministrador(administradorId),
+        });
 
     res.status(201).json({
       mensaje: hayAsignacion
@@ -146,14 +182,33 @@ export const crearDocumento = async (
   }
 };
 
-/** Actualización parcial del documento (sin campo 'activo') */
-export const actualizarDocumento = async (req: Request, res: Response): Promise<void> => {
+/** Actualización parcial del documento, limitada a la empresa */
+export const actualizarDocumento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
+    const administradorId = Number((req as any).usuario?.id);
+
+    if (!Number.isSafeInteger(administradorId) || administradorId <= 0) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
+      return;
+    }
+
+    const empresaId = await obtenerEmpresaAdministrador(administradorId);
     const { id } = req.params;
-    const documento = await Documento.findByPk(id);
+
+    const documento = await Documento.findOne({
+      where: {
+        id,
+        empresa_id: empresaId,
+      },
+    });
 
     if (!documento) {
-      res.status(404).json({ mensaje: '❌ Documento no encontrado' });
+      res.status(404).json({
+        mensaje: '❌ Documento no encontrado',
+      });
       return;
     }
 
@@ -162,49 +217,104 @@ export const actualizarDocumento = async (req: Request, res: Response): Promise<
       tipo,
       url,
       version,
-    }: { nombre?: string; tipo?: string; url?: string; version?: string } = req.body;
+    }: {
+      nombre?: string;
+      tipo?: string;
+      url?: string;
+      version?: string;
+    } = req.body;
 
     const data: any = {};
+
     if (nombre !== undefined) data.nombre = nombre;
     if (tipo !== undefined) data.tipo = tipo;
     if (version !== undefined) data.version = version;
     if (url !== undefined) data.url = normalizeUploadPath(url);
 
     if (Object.keys(data).length === 0) {
-      res.status(400).json({ mensaje: '❌ No se enviaron campos para actualizar' });
+      res.status(400).json({
+        mensaje: '❌ No se enviaron campos para actualizar',
+      });
       return;
     }
 
     await documento.update(data);
-    res.json({ mensaje: '✅ Documento actualizado correctamente', id: documento.id });
-  } catch (error: any) {
+
+    res.json({
+      mensaje: '✅ Documento actualizado correctamente',
+      id: documento.id,
+    });
+  } catch (error) {
+    if (error instanceof ErrorAsignacionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
     console.error('❌ Error al actualizar documento:', error);
-    res.status(400).json({ mensaje: `❌ ${error?.message || 'Error al actualizar documento'}` });
+
+    res.status(400).json({
+      mensaje: `❌ ${
+        error instanceof Error ? error.message : 'Error al actualizar documento'
+      }`,
+    });
   }
 };
 
-/** Eliminar documento (hard delete) */
-export const eliminarDocumento = async (req: Request, res: Response): Promise<void> => {
+/** Eliminar documento, limitado a la empresa */
+export const eliminarDocumento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { id } = req.params;
-    const rows = await Documento.destroy({ where: { id } });
+    const administradorId = Number((req as any).usuario?.id);
+
+    if (!Number.isSafeInteger(administradorId) || administradorId <= 0) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
+      return;
+    }
+
+    const empresaId = await obtenerEmpresaAdministrador(administradorId);
+
+    const rows = await Documento.destroy({
+      where: {
+        id: req.params.id,
+        empresa_id: empresaId,
+      },
+    });
 
     if (rows > 0) {
       res.json({ mensaje: '✅ Documento eliminado' });
     } else {
-      res.status(404).json({ mensaje: '❌ Documento no encontrado' });
+      res.status(404).json({
+        mensaje: '❌ Documento no encontrado',
+      });
     }
   } catch (error) {
-    res.status(500).json({ mensaje: '❌ Error al eliminar documento', error });
+    if (error instanceof ErrorAsignacionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
+    console.error('Error al eliminar documento:', error);
+
+    res.status(500).json({
+      mensaje: '❌ Error al eliminar documento',
+    });
   }
 };
 
 /** Documentos asignados al usuario autenticado */
-export const obtenerMisDocumentos = async (req: Request, res: Response): Promise<void> => {
+export const obtenerMisDocumentos = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const usuario = (req as any).usuario;
+
     if (!usuario?.id) {
-      res.status(401).json({ mensaje: '❌ Usuario no autenticado' });
+      res.status(401).json({
+        mensaje: '❌ Usuario no autenticado',
+      });
       return;
     }
 
@@ -212,9 +322,15 @@ export const obtenerMisDocumentos = async (req: Request, res: Response): Promise
       include: [
         {
           association: 'asignaciones',
-          where: { usuario_id: usuario.id }, // 🔸 sin condición de 'activo'
+          where: { usuario_id: usuario.id },
           required: true,
-          attributes: ['id', 'fecha_asignacion', 'recepcionado', 'fecha_recepcion', 'ruta_constancia_pdf'],
+          attributes: [
+            'id',
+            'fecha_asignacion',
+            'recepcionado',
+            'fecha_recepcion',
+            'ruta_constancia_pdf',
+          ],
         },
       ],
     });
@@ -222,6 +338,7 @@ export const obtenerMisDocumentos = async (req: Request, res: Response): Promise
     res.json(
       documentos.map((doc: any) => {
         const a = doc.asignaciones[0];
+
         return {
           id: doc.id,
           asignacion_id: a?.id ?? null,
@@ -239,26 +356,62 @@ export const obtenerMisDocumentos = async (req: Request, res: Response): Promise
     );
   } catch (error) {
     console.error('❌ Error al obtener documentos del usuario:', error);
-    res.status(500).json({ mensaje: '❌ Error al obtener documentos del usuario', error });
+
+    res.status(500).json({
+      mensaje: '❌ Error al obtener documentos del usuario',
+      error,
+    });
   }
 };
 
-/** Obtener un documento por ID */
-export const obtenerDocumentoPorId = async (req: Request, res: Response): Promise<void> => {
+/** Obtener un documento por ID, limitado a la empresa */
+export const obtenerDocumentoPorId = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const documento = await Documento.findByPk(req.params.id);
+    const administradorId = Number((req as any).usuario?.id);
+
+    if (!Number.isSafeInteger(administradorId) || administradorId <= 0) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
+      return;
+    }
+
+    const empresaId = await obtenerEmpresaAdministrador(administradorId);
+
+    const documento = await Documento.findOne({
+      where: {
+        id: req.params.id,
+        empresa_id: empresaId,
+      },
+    });
+
     if (documento) {
       res.json(documento);
     } else {
-      res.status(404).json({ mensaje: '❌ Documento no encontrado' });
+      res.status(404).json({
+        mensaje: '❌ Documento no encontrado',
+      });
     }
   } catch (error) {
-    res.status(500).json({ mensaje: '❌ Error al obtener documento por ID', error });
+    if (error instanceof ErrorAsignacionDocumental) {
+      res.status(error.estadoHttp).json({ mensaje: error.message });
+      return;
+    }
+
+    console.error('Error al obtener documento por ID:', error);
+
+    res.status(500).json({
+      mensaje: '❌ Error al obtener documento por ID',
+    });
   }
 };
 
 /** Confirmar recepción de documento y generar constancia PDF */
-export const confirmarRecepcionDocumento = async (req: Request, res: Response): Promise<void> => {
+export const confirmarRecepcionDocumento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const usuarioId = Number((req as any).usuario?.id);
   const documentoId = Number(req.params.documentoId);
 
@@ -274,7 +427,8 @@ export const confirmarRecepcionDocumento = async (req: Request, res: Response): 
 
   if (req.body?.acepta_declaracion !== true) {
     res.status(400).json({
-      mensaje: 'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
+      mensaje:
+        'Debes aceptar expresamente la declaración de lectura y comprensión antes de confirmar la recepción.',
     });
     return;
   }
@@ -298,24 +452,42 @@ export const confirmarRecepcionDocumento = async (req: Request, res: Response): 
     }
 
     console.error('❌ Error al confirmar recepción:', error);
-    res.status(500).json({ mensaje: 'Error al confirmar recepción del documento' });
+
+    res.status(500).json({
+      mensaje: 'Error al confirmar recepción del documento',
+    });
   }
 };
 
 /** Confirmaciones por documento */
-export const obtenerConfirmacionesDocumento = async (req: Request, res: Response): Promise<void> => {
+export const obtenerConfirmacionesDocumento = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const confirmaciones = await RelDocumentoUsuario.findAll({
-      where: { documento_id: req.params.id, recepcionado: true },
+      where: {
+        documento_id: req.params.id,
+        recepcionado: true,
+      },
       include: [
-        { model: Usuario, as: 'usuario', attributes: ['id', 'nombre', 'apellido', 'correo'] },
-        { model: Documento, as: 'documento', attributes: ['id', 'nombre', 'tipo'] },
+        {
+          model: Usuario,
+          as: 'usuario',
+          attributes: ['id', 'nombre', 'apellido', 'correo'],
+        },
+        {
+          model: Documento,
+          as: 'documento',
+          attributes: ['id', 'nombre', 'tipo'],
+        },
       ],
     });
 
     const datos = confirmaciones
       .map((relacion) => {
         if (!relacion.usuario || !relacion.documento) return null;
+
         return {
           id: relacion.id,
           usuario_id: relacion.usuario.id,
@@ -332,6 +504,9 @@ export const obtenerConfirmacionesDocumento = async (req: Request, res: Response
 
     res.status(200).json(datos);
   } catch (error) {
-    res.status(500).json({ mensaje: '❌ Error al obtener confirmaciones', error });
+    res.status(500).json({
+      mensaje: '❌ Error al obtener confirmaciones',
+      error,
+    });
   }
 };

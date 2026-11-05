@@ -1,3 +1,4 @@
+import { avisarRespuestaFormulario } from '../services/notificacionesAutomaticas.service';
 // src/controllers/respuesta_formulario.controller.ts
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
@@ -7,34 +8,80 @@ import fs from 'fs';
 import path from 'path';
 
 // ✅ Crear una nueva respuesta de formulario
-export const crearRespuestaFormulario = async (req: Request, res: Response): Promise<void> => {
+export const crearRespuestaFormulario = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { formulario_id, respuestas_json } = req.body;
+    const usuarioId = Number(req.usuario?.id);
+    const formularioId = Number(formulario_id);
 
-    if (!formulario_id || !respuestas_json) {
-      res.status(400).json({ mensaje: '❌ formulario_id y respuestas_json son obligatorios.' });
+    if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado.' });
       return;
     }
 
-    const token = req.headers.authorization?.split(' ')[1];
-    let usuario_id: number | undefined;
+    if (
+      !Number.isSafeInteger(formularioId) ||
+      formularioId <= 0 ||
+      respuestas_json == null ||
+      typeof respuestas_json !== 'object' ||
+      Array.isArray(respuestas_json)
+    ) {
+      res.status(400).json({
+        mensaje: 'Formulario o respuestas inválidos.',
+      });
+      return;
+    }
 
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secreto_prisma') as any;
-        usuario_id = decoded?.id;
-      } catch (err) {
-        console.error('❌ Token inválido al registrar respuesta:', err);
-        res.status(401).json({ mensaje: '❌ Token inválido' });
-        return;
-      }
+    const [usuario, formulario] = await Promise.all([
+      Usuario.findByPk(usuarioId),
+      Formulario.findByPk(formularioId),
+    ]);
+
+    if (!usuario || !usuario.activo || Number(usuario.rol_id) !== 3) {
+      res.status(403).json({
+        mensaje: 'Usuario sin autorización para responder formularios.',
+      });
+      return;
+    }
+
+    if (!formulario || !formulario.activo) {
+      res.status(404).json({
+        mensaje: 'Formulario no encontrado o inactivo.',
+      });
+      return;
+    }
+
+    if (
+      formulario.faena_id == null ||
+      Number(formulario.faena_id) !== Number(usuario.faena_id)
+    ) {
+      res.status(403).json({
+        mensaje: 'El formulario no corresponde a tu faena.',
+      });
+      return;
     }
 
     const nueva = await RespuestaFormulario.create({
-      formulario_id,
-      usuario_id,
+      formulario_id: formularioId,
+      usuario_id: usuarioId,
       respuestas_json,
     });
+
+    try {
+      await avisarRespuestaFormulario({
+        respuestaId: nueva.id,
+        formularioId,
+        trabajadorId: usuarioId,
+      });
+    } catch (errorNotificacion) {
+      console.error(
+        'Respuesta registrada, pero falló la notificación:',
+        errorNotificacion
+      );
+    }
 
     res.status(201).json({
       mensaje: '✅ Respuesta registrada correctamente.',
@@ -42,7 +89,9 @@ export const crearRespuestaFormulario = async (req: Request, res: Response): Pro
     });
   } catch (error) {
     console.error('❌ Error al guardar la respuesta:', error);
-    res.status(500).json({ mensaje: '❌ Error al guardar la respuesta del formulario.', error });
+    res.status(500).json({
+      mensaje: '❌ Error al guardar la respuesta del formulario.',
+    });
   }
 };
 

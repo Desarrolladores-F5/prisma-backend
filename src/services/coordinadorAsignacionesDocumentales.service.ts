@@ -1,6 +1,8 @@
-import { sequelize } from '../models';
+import { sequelize, Documento } from '../models';
 import {
   resolverDestinatariosDocumento,
+  obtenerEmpresaAdministrador,
+  ErrorAsignacionDocumental,
 } from './asignacionDocumental.service';
 import {
   registrarAsignacionesDocumentales,
@@ -26,7 +28,40 @@ export const ejecutarAsignacionDocumental = async ({
   usuarioIds,
   rolId,
 }: SolicitudAsignacionDocumental): Promise<number[]> => {
-  // Validar antes de iniciar cualquier escritura.
+  if (
+    !Number.isSafeInteger(documentoId) ||
+    documentoId <= 0
+  ) {
+    throw new ErrorAsignacionDocumental(
+      400,
+      'Identificador de documento inválido.'
+    );
+  }
+
+  // Obtener la empresa real desde el usuario autenticado.
+  // Nunca confiar en un empresa_id enviado por el frontend.
+  const empresaId = await obtenerEmpresaAdministrador(
+    administradorId
+  );
+
+  // Comprobar que el documento pertenece a esa empresa.
+  // Esta validación ocurre antes de iniciar la transacción.
+  const documento = await Documento.findOne({
+    where: {
+      id: documentoId,
+      empresa_id: empresaId,
+    },
+    attributes: ['id', 'nombre', 'empresa_id'],
+  });
+
+  if (!documento) {
+    throw new ErrorAsignacionDocumental(
+      404,
+      'Documento no encontrado en la empresa autorizada.'
+    );
+  }
+
+  // Validar destinatarios activos de la misma empresa.
   const destinatarios = await resolverDestinatariosDocumento({
     administradorId,
     asignacionTipo,
@@ -62,13 +97,14 @@ export const ejecutarAsignacionDocumental = async ({
     throw error;
   }
 
-  // La asignación ya está confirmada.
-  // Los avisos no deben afectar la transacción documental.
+  // Las notificaciones se generan solamente después del commit.
+  // No se utiliza el nombre enviado por el cliente: se obtiene
+  // directamente del documento autorizado en MySQL.
   if (nuevasAsignaciones.length > 0) {
     try {
       await avisarAsignacionDocumental({
         documentoId,
-        nombreDocumento,
+        nombreDocumento: documento.nombre,
         destinatariosIds: nuevasAsignaciones,
       });
     } catch (errorNotificacion) {

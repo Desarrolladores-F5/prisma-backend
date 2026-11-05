@@ -117,6 +117,16 @@ Faena.hasMany(Estadistica, { foreignKey: 'faena_id', as: 'estadisticas' });
 Estadistica.belongsTo(Usuario, { foreignKey: 'generado_por', as: 'usuario' });
 Usuario.hasMany(Estadistica, { foreignKey: 'generado_por', as: 'estadisticas_generadas' });
 
+MedidaCorrectiva.belongsTo(Faena, {
+  foreignKey: 'faena_id',
+  as: 'faena',
+});
+
+Faena.hasMany(MedidaCorrectiva, {
+  foreignKey: 'faena_id',
+  as: 'medidas_correctivas',
+});
+
 MedidaCorrectiva.belongsTo(Usuario, { foreignKey: 'responsable_id', as: 'responsable' });
 Usuario.hasMany(MedidaCorrectiva, { foreignKey: 'responsable_id', as: 'medidas_correctivas' });
 

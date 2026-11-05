@@ -1,3 +1,5 @@
+import { avisarResultadoExamen } from '../services/notificacionesAutomaticas.service';
+import { avisarCapacitacion } from '../services/notificacionesAutomaticas.service';
 // src/controllers/capacitacion.controller.ts
 import { Request, Response } from 'express';
 import {
@@ -32,9 +34,26 @@ export const obtenerCapacitaciones = async (_req: Request, res: Response): Promi
 export const crearCapacitacion = async (req: Request, res: Response): Promise<void> => {
   try {
     const nueva = await Capacitacion.create(req.body);
+
+    // Notificar sin impedir el registro de la capacitación.
+    try {
+      await avisarCapacitacion({
+        capacitacionId: nueva.id,
+        titulo: nueva.titulo,
+        faenaId: Number(nueva.faena_id),
+        capacitadorId: Number(nueva.usuario_id),
+      });
+    } catch (errorNotificacion) {
+      console.error(
+        'Capacitación creada, pero no fue posible generar las notificaciones:',
+        errorNotificacion
+      );
+    }
+
     res.status(201).json(nueva);
   } catch (error) {
-    res.status(400).json({ mensaje: '❌ Error al crear capacitación', error });
+    console.error('Error al crear capacitación:', error);
+    res.status(400).json({ mensaje: '❌ Error al crear capacitación' });
   }
 };
 
@@ -204,6 +223,22 @@ export const responderExamenPorCapacitacionId = async (req: Request, res: Respon
         }
       }
     );
+
+    // Notificar únicamente después de guardar el resultado.
+    // Un fallo del aviso no invalida el examen registrado.
+    try {
+      await avisarResultadoExamen({
+        examenId: Number(examen.id),
+        trabajadorId: Number(usuarioId),
+        porcentaje,
+        aprobado,
+      });
+    } catch (errorNotificacion) {
+      console.error(
+        'Examen registrado, pero falló la notificación:',
+        errorNotificacion
+      );
+    }
 
     res.status(201).json({
       mensaje: '✅ Examen registrado correctamente.',

@@ -9,12 +9,13 @@ export interface MedidaCorrectivaAttributes {
   estado: string;
   prioridad: string;
   evidencia_documento_id?: number;
-  responsable_id?: number; 
+  responsable_id?: number;
+  faena_id?: number | null;
   fecha_creacion?: Date;
 }
 
 interface MedidaCorrectivaCreationAttributes
-  extends Optional<MedidaCorrectivaAttributes, 'id' | 'evidencia_documento_id' | 'responsable_id' | 'fecha_creacion'> {}
+  extends Optional<MedidaCorrectivaAttributes, 'id' | 'evidencia_documento_id' | 'responsable_id' | 'faena_id' | 'fecha_creacion'> {}
 
 export class MedidaCorrectivaModel
   extends Model<MedidaCorrectivaAttributes, MedidaCorrectivaCreationAttributes>
@@ -27,6 +28,7 @@ export class MedidaCorrectivaModel
   public prioridad!: string;
   public evidencia_documento_id?: number;
   public responsable_id?: number;
+  public faena_id?: number | null;
   public fecha_creacion!: Date;
 }
 
@@ -71,6 +73,16 @@ export const MedidaCorrectiva = sequelize.define<MedidaCorrectivaModel>('medida_
     },
     onDelete: 'SET NULL',
     onUpdate: 'CASCADE',
+  },
+  faena_id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: true,
+    references: {
+      model: 'faenas',
+      key: 'id',
+    },
+    onUpdate: 'CASCADE',
+    onDelete: 'RESTRICT',
   },
   fecha_creacion: {
     type: DataTypes.DATE,

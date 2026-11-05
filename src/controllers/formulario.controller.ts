@@ -1,3 +1,4 @@
+import { avisarNuevoFormulario } from '../services/notificacionesAutomaticas.service';
 // src/controllers/formulario.controller.ts
 import { Request, Response } from 'express';
 import { Formulario, Usuario } from '../models';
@@ -59,6 +60,22 @@ export const crearFormulario = async (req: Request, res: Response): Promise<void
       faena_id: faena_id || null,
       activo: true,
     });
+
+    // Generar avisos sin impedir el registro del formulario.
+    try {
+      await avisarNuevoFormulario({
+        formularioId: nuevo.id,
+        nombre: nuevo.nombre,
+        faenaId: nuevo.faena_id == null
+          ? null
+          : Number(nuevo.faena_id),
+      });
+    } catch (errorNotificacion) {
+      console.error(
+        'Formulario creado, pero falló la notificación:',
+        errorNotificacion
+      );
+    }
 
     res.status(201).json(nuevo);
   } catch (error) {

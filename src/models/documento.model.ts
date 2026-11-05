@@ -9,10 +9,14 @@ export interface DocumentoAttributes {
   url: string;
   version: string;
   fecha_creacion?: Date;
+  empresa_id: number | null;
 }
 
 interface DocumentoCreationAttributes
-  extends Optional<DocumentoAttributes, 'id' | 'fecha_creacion'> {}
+  extends Optional<
+    DocumentoAttributes,
+    'id' | 'fecha_creacion' | 'empresa_id'
+  > {}
 
 export class DocumentoModel
   extends Model<DocumentoAttributes, DocumentoCreationAttributes>
@@ -23,6 +27,7 @@ export class DocumentoModel
   public url!: string;
   public version!: string;
   public fecha_creacion!: Date;
+  public empresa_id!: number | null;
 }
 
 export const Documento = sequelize.define<DocumentoModel>('documento', {
@@ -50,6 +55,11 @@ export const Documento = sequelize.define<DocumentoModel>('documento', {
   fecha_creacion: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
+  },
+  empresa_id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    allowNull: true,
+    defaultValue: null,
   },
 }, {
   tableName: 'documentos',

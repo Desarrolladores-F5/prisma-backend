@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import { Auditoria, Faena, Usuario, Rol } from '../models';
+import { avisarAuditoria } from '../services/notificacionesAutomaticas.service';
 
-// ✅ Obtener todas las auditorías con faena y auditor (con rol)
+// Obtener todas las auditorías con faena y auditor (con rol)
 export const obtenerAuditorias = async (_req: Request, res: Response) => {
   try {
     const auditorias = await Auditoria.findAll({
@@ -33,10 +34,27 @@ export const obtenerAuditorias = async (_req: Request, res: Response) => {
   }
 };
 
-// ✅ Crear nueva auditoría
+// Crear nueva auditoría
 export const crearAuditoria = async (req: Request, res: Response) => {
   try {
     const nueva = await Auditoria.create(req.body);
+
+    // Generar avisos sin afectar el registro de la auditoría.
+    try {
+      await avisarAuditoria({
+        auditoriaId: Number(nueva.get('id')),
+        faenaId: Number(nueva.get('faena_id')),
+        auditorId: Number(nueva.get('auditor_id')),
+        tipo: nueva.get('tipo') as string | null,
+        descripcion: nueva.get('descripcion') as string | null,
+      });
+    } catch (errorNotificacion) {
+      console.error(
+        'Auditoría creada, pero no fue posible generar las notificaciones:',
+        errorNotificacion
+      );
+    }
+
     res.status(201).json(nueva);
   } catch (error) {
     console.error('❌ Error al crear auditoría:', error);
@@ -44,7 +62,7 @@ export const crearAuditoria = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Actualizar auditoría existente
+// Actualizar auditoría existente
 export const actualizarAuditoria = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -83,7 +101,7 @@ export const actualizarAuditoria = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Eliminar auditoría
+// Eliminar auditoría
 export const eliminarAuditoria = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

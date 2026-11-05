@@ -25,34 +25,18 @@ const idValido = (id: unknown): id is number =>
   Number.isSafeInteger(id) &&
   id > 0;
 
-export const resolverDestinatariosDocumento = async ({
-  administradorId,
-  asignacionTipo,
-  usuarioIds = [],
-  rolId,
-}: SolicitudDestinatarios): Promise<number[]> => {
+/**
+ * Obtiene la empresa real del administrador desde la base de datos.
+ * Nunca confía en un empresa_id enviado por el frontend.
+ */
+export const obtenerEmpresaAdministrador = async (
+  administradorId: number
+): Promise<number> => {
   if (!idValido(administradorId)) {
-    throw new ErrorAsignacionDocumental(401, 'Administrador inválido.');
-  }
-
-  if (!['usuarios', 'rol', 'todos'].includes(asignacionTipo)) {
-    throw new ErrorAsignacionDocumental(400, 'Tipo de asignación inválido.');
-  }
-
-  if (
-    asignacionTipo === 'usuarios' &&
-    (!Array.isArray(usuarioIds) ||
-      usuarioIds.length === 0 ||
-      !usuarioIds.every(idValido))
-  ) {
-    throw new ErrorAsignacionDocumental(400, 'Destinatarios inválidos.');
-  }
-
-  if (
-    (asignacionTipo === 'rol' || asignacionTipo === 'todos') &&
-    !idValido(rolId)
-  ) {
-    throw new ErrorAsignacionDocumental(400, 'Rol inválido.');
+    throw new ErrorAsignacionDocumental(
+      401,
+      'Administrador inválido.'
+    );
   }
 
   const administrador = await Usuario.findByPk(administradorId, {
@@ -83,6 +67,53 @@ export const resolverDestinatariosDocumento = async ({
       'No fue posible identificar la empresa del administrador.'
     );
   }
+
+  return empresaId;
+};
+
+export const resolverDestinatariosDocumento = async ({
+  administradorId,
+  asignacionTipo,
+  usuarioIds = [],
+  rolId,
+}: SolicitudDestinatarios): Promise<number[]> => {
+  if (!idValido(administradorId)) {
+    throw new ErrorAsignacionDocumental(
+      401,
+      'Administrador inválido.'
+    );
+  }
+
+  if (!['usuarios', 'rol', 'todos'].includes(asignacionTipo)) {
+    throw new ErrorAsignacionDocumental(
+      400,
+      'Tipo de asignación inválido.'
+    );
+  }
+
+  if (
+    asignacionTipo === 'usuarios' &&
+    (!Array.isArray(usuarioIds) ||
+      usuarioIds.length === 0 ||
+      !usuarioIds.every(idValido))
+  ) {
+    throw new ErrorAsignacionDocumental(
+      400,
+      'Destinatarios inválidos.'
+    );
+  }
+
+  if (
+    (asignacionTipo === 'rol' || asignacionTipo === 'todos') &&
+    !idValido(rolId)
+  ) {
+    throw new ErrorAsignacionDocumental(
+      400,
+      'Rol inválido.'
+    );
+  }
+
+  const empresaId = await obtenerEmpresaAdministrador(administradorId);
 
   const where: Record<string, unknown> = {
     activo: true,

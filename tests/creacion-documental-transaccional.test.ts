@@ -7,6 +7,7 @@ vi.mock('../src/models', () => ({
 
 vi.mock('../src/services/asignacionDocumental.service', () => ({
   resolverDestinatariosDocumento: vi.fn(),
+  obtenerEmpresaAdministrador: vi.fn(),
 }));
 
 vi.mock('../src/services/registroAsignacionesDocumentales.service', () => ({
@@ -18,7 +19,10 @@ vi.mock('../src/services/notificacionesAutomaticas.service', () => ({
 }));
 
 import { sequelize, Documento } from '../src/models';
-import { resolverDestinatariosDocumento } from '../src/services/asignacionDocumental.service';
+import {
+  resolverDestinatariosDocumento,
+  obtenerEmpresaAdministrador,
+} from '../src/services/asignacionDocumental.service';
 import { registrarAsignacionesDocumentales } from '../src/services/registroAsignacionesDocumentales.service';
 import { avisarAsignacionDocumental } from '../src/services/notificacionesAutomaticas.service';
 import { crearDocumentoConAsignaciones } from '../src/services/creacionDocumental.service';
@@ -45,11 +49,15 @@ describe('Creación documental transaccional', () => {
     };
 
     vi.mocked(sequelize.transaction).mockResolvedValue(transaccion);
+    vi.mocked(obtenerEmpresaAdministrador).mockResolvedValue(1);
     vi.mocked(resolverDestinatariosDocumento).mockResolvedValue([31]);
+
     vi.mocked(Documento.create).mockResolvedValue({
       id: 88,
       nombre: 'Documento de prueba',
+      empresa_id: 1,
     } as any);
+
     vi.mocked(registrarAsignacionesDocumentales).mockResolvedValue([31]);
     vi.mocked(avisarAsignacionDocumental).mockResolvedValue(1);
   });
@@ -72,6 +80,19 @@ describe('Creación documental transaccional', () => {
 
     expect(transaccion.commit).toHaveBeenCalledOnce();
     expect(transaccion.rollback).not.toHaveBeenCalled();
+  });
+
+  it('guarda la empresa real del administrador en el documento', async () => {
+    await crearDocumentoConAsignaciones(solicitud);
+
+    expect(obtenerEmpresaAdministrador).toHaveBeenCalledWith(2);
+
+    expect(Documento.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        empresa_id: 1,
+      }),
+      { transaction: transaccion }
+    );
   });
 
   it('no crea documentos cuando falla la autorización de destinatarios', async () => {

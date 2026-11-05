@@ -1,6 +1,7 @@
 import { sequelize, Documento } from '../models';
 import {
   resolverDestinatariosDocumento,
+  obtenerEmpresaAdministrador,
 } from './asignacionDocumental.service';
 import {
   registrarAsignacionesDocumentales,
@@ -39,7 +40,10 @@ export const crearDocumentoConAsignaciones = async ({
     throw new Error('Faltan datos obligatorios del documento.');
   }
 
-  // Primero verificar permisos y destinatarios, sin crear registros.
+  // Validar la empresa real del administrador.
+  const empresaId = await obtenerEmpresaAdministrador(administradorId);
+
+  // Validar los destinatarios antes de crear registros.
   const destinatarios = await resolverDestinatariosDocumento({
     administradorId,
     asignacionTipo,
@@ -59,6 +63,7 @@ export const crearDocumentoConAsignaciones = async ({
         tipo,
         url,
         version,
+        empresa_id: empresaId,
       },
       {
         transaction: transaccion,
@@ -88,8 +93,8 @@ export const crearDocumentoConAsignaciones = async ({
     throw error;
   }
 
-  // El documento y sus asignaciones ya quedaron confirmados.
-  // Un error de aviso no debe invalidar la operación documental.
+  // Las notificaciones se envían después del commit.
+  // Una falla de notificación no invalida el documento creado.
   try {
     await avisarAsignacionDocumental({
       documentoId: documentoCreado.id,
