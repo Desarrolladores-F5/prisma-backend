@@ -23,7 +23,32 @@ interface Destinatario {
   faena_id: number | null;
 }
 
+interface FaenaDestino {
+  id: number;
+  empresa_id: number;
+  responsable_id: number;
+}
+
+interface AlertaPendiente {
+  destinatarios: number[];
+  claveEvento: string;
+  mensaje: string;
+  tipo: string;
+  origen: string;
+  faenaId: number;
+}
+
 const ZONA_HORARIA = 'America/Santiago';
+
+const BASE_PRUEBAS = 'prisma_test_alertas';
+const BASE_PRODUCCION = 'Prisma';
+
+const ARGUMENTOS_PERMITIDOS = [
+  '--enviar',
+  '--confirmar',
+  '--entorno-pruebas',
+  '--entorno-produccion',
+];
 
 const fechaChile = (fecha: Date): string => {
   const partes = new Intl.DateTimeFormat('en-CA', {
@@ -34,20 +59,26 @@ const fechaChile = (fecha: Date): string => {
   }).formatToParts(fecha);
 
   const obtener = (tipo: string): string =>
-    partes.find(parte => parte.type === tipo)?.value ?? '';
+    partes.find(
+      parte => parte.type === tipo
+    )?.value ?? '';
 
-  return `${obtener('year')}-${obtener('month')}-${obtener('day')}`;
+  return [
+    obtener('year'),
+    obtener('month'),
+    obtener('day'),
+  ].join('-');
 };
 
-const fechaCalendario = (valor: Date | string): string | null => {
+const fechaCalendario = (
+  valor: Date | string
+): string | null => {
   const fecha = new Date(valor);
 
   if (Number.isNaN(fecha.getTime())) {
     return null;
   }
 
-  // Las fechas de vencimiento almacenadas se interpretan
-  // usando su fecha calendario UTC original.
   return fecha.toISOString().substring(0, 10);
 };
 
@@ -55,8 +86,10 @@ const diasHasta = (fecha: string): number => {
   const hoyChile = fechaChile(new Date());
 
   return Math.round(
-    (Date.parse(`${fecha}T00:00:00Z`) -
-      Date.parse(`${hoyChile}T00:00:00Z`)) / 86400000
+    (
+      Date.parse(`${fecha}T00:00:00Z`) -
+      Date.parse(`${hoyChile}T00:00:00Z`)
+    ) / 86400000
   );
 };
 
@@ -65,115 +98,333 @@ const obtenerHito = (
   estado: string,
   dias: number
 ): string | null => {
-  const normalizado = estado.trim().toLowerCase();
+  const normalizado = String(estado || '')
+    .trim()
+    .toLowerCase();
 
   if (
     tipo === 'medida' &&
     !['pendiente', 'en curso'].includes(normalizado)
-  ) return null;
+  ) {
+    return null;
+  }
 
   if (
     tipo === 'epp' &&
     !['nuevo', 'vigente', 'entregado'].includes(normalizado)
-  ) return null;
+  ) {
+    return null;
+  }
 
-  if (dias < 0) return 'vencido';
-  if (dias === 0) return 'vence_hoy';
+  if (dias < 0) {
+    return 'vencido';
+  }
 
-  const hitos = tipo === 'epp' ? [30, 15, 7] : [7];
-  return hitos.includes(dias) ? `faltan_${dias}` : null;
+  if (dias === 0) {
+    return 'vence_hoy';
+  }
+
+  const hitos = tipo === 'epp'
+    ? [30, 15, 7]
+    : [7];
+
+  return hitos.includes(dias)
+    ? `faltan_${dias}`
+    : null;
+};
+
+const verificarArgumentos = () => {
+  const argumentos = process.argv.slice(2);
+
+  if (
+    argumentos.some(
+      argumento =>
+        !ARGUMENTOS_PERMITIDOS.includes(argumento)
+    )
+  ) {
+    throw new Error(
+      'Se recibió un argumento no reconocido.'
+    );
+  }
+
+  if (new Set(argumentos).size !== argumentos.length) {
+    throw new Error(
+      'No se permiten argumentos duplicados.'
+    );
+  }
+
+  const enviar = argumentos.includes('--enviar');
+  const confirmar = argumentos.includes('--confirmar');
+
+  const entornoPruebas = argumentos.includes(
+    '--entorno-pruebas'
+  );
+
+  const entornoProduccion = argumentos.includes(
+    '--entorno-produccion'
+  );
+
+  if (enviar !== confirmar) {
+    throw new Error(
+      'Para registrar alertas se requieren ' +
+      '--enviar --confirmar.'
+    );
+  }
+
+  if (entornoPruebas && entornoProduccion) {
+    throw new Error(
+      'No se pueden seleccionar ambos entornos.'
+    );
+  }
+
+  if (
+    !enviar &&
+    (entornoPruebas || entornoProduccion)
+  ) {
+    throw new Error(
+      'Los parámetros de entorno requieren ' +
+      '--enviar --confirmar.'
+    );
+  }
+
+  if (
+    enviar &&
+    !entornoPruebas &&
+    !entornoProduccion
+  ) {
+    throw new Error(
+      'BLOQUEADO: debe seleccionar expresamente ' +
+      '--entorno-pruebas o --entorno-produccion.'
+    );
+  }
+
+  return {
+    enviar,
+    entornoPruebas,
+    entornoProduccion,
+  };
+};
+
+const verificarBaseParaEscritura = async (
+  entornoPruebas: boolean,
+  entornoProduccion: boolean
+): Promise<void> => {
+  const [filas] = await sequelize.query<{
+    base_actual: string | null;
+  }>(
+    'SELECT DATABASE() AS base_actual',
+    { type: QueryTypes.SELECT }
+  ).then(registros => [registros]);
+
+  const baseActual = filas[0]?.base_actual;
+
+  if (entornoPruebas) {
+    if (
+      process.env.DB_NAME !== BASE_PRUEBAS ||
+      baseActual !== BASE_PRUEBAS
+    ) {
+      throw new Error(
+        'BLOQUEADO: las escrituras de prueba ' +
+        'solo se permiten en prisma_test_alertas.'
+      );
+    }
+
+    console.log(
+      'Entorno de pruebas verificado:',
+      baseActual
+    );
+
+    return;
+  }
+
+  if (entornoProduccion) {
+    if (
+      process.env.DB_NAME !== BASE_PRODUCCION ||
+      baseActual !== BASE_PRODUCCION
+    ) {
+      throw new Error(
+        'BLOQUEADO: la base conectada no ' +
+        'corresponde a la producción autorizada.'
+      );
+    }
+
+    if (
+      process.env.PRISMA_ALERTAS_PRODUCCION !==
+      'HABILITADA'
+    ) {
+      throw new Error(
+        'BLOQUEADO: la escritura en producción ' +
+        'no está habilitada.'
+      );
+    }
+
+    console.log(
+      'Entorno de producción autorizado:',
+      baseActual
+    );
+
+    return;
+  }
+
+  throw new Error(
+    'BLOQUEADO: entorno de escritura no autorizado.'
+  );
 };
 
 async function main(): Promise<void> {
   try {
+    // Validamos los argumentos antes de consultar registros.
+    const configuracion = verificarArgumentos();
+
+    // El modo de escritura exige verificar la conexión
+    // real antes de modificar cualquier notificación.
+    if (configuracion.enviar) {
+      await verificarBaseParaEscritura(
+        configuracion.entornoPruebas,
+        configuracion.entornoProduccion
+      );
+    }
+
+    // =====================================================
+    // EPP ACTIVOS
+    // =====================================================
+
     const epp = await sequelize.query<Registro>(
-      `SELECT e.id, e.tipo AS descripcion, e.estado,
-              e.fecha_vencimiento AS fecha_limite,
-              e.usuario_id, u.activo AS usuario_activo,
-              COALESCE(e.faena_id, u.faena_id) AS faena_id,
-              u.faena_id AS faena_usuario_id,
-              f.empresa_id, f.activo AS faena_activa
+      `SELECT
+         e.id,
+         e.tipo AS descripcion,
+         e.estado,
+         e.fecha_vencimiento AS fecha_limite,
+         e.usuario_id,
+         u.activo AS usuario_activo,
+         e.faena_id,
+         u.faena_id AS faena_usuario_id,
+         f.empresa_id,
+         f.activo AS faena_activa
        FROM epp e
-       LEFT JOIN usuarios u ON u.id = e.usuario_id
+       LEFT JOIN usuarios u
+         ON u.id = e.usuario_id
        LEFT JOIN faenas f
-         ON f.id = COALESCE(e.faena_id, u.faena_id)
+         ON f.id = e.faena_id
        WHERE e.activo = 1`,
       { type: QueryTypes.SELECT }
     );
 
+    // =====================================================
+    // MEDIDAS CORRECTIVAS
+    // =====================================================
+
     const medidas = await sequelize.query<Registro>(
-      `SELECT m.id, m.descripcion, m.estado,
-              m.fecha_cumplimiento AS fecha_limite,
-              m.responsable_id AS usuario_id,
-              u.activo AS usuario_activo,
-              m.faena_id, u.faena_id AS faena_usuario_id,
-              f.empresa_id, f.activo AS faena_activa
+      `SELECT
+         m.id,
+         m.descripcion,
+         m.estado,
+         m.fecha_cumplimiento AS fecha_limite,
+         m.responsable_id AS usuario_id,
+         u.activo AS usuario_activo,
+         m.faena_id,
+         u.faena_id AS faena_usuario_id,
+         f.empresa_id,
+         f.activo AS faena_activa
        FROM medidas_correctivas m
-       LEFT JOIN usuarios u ON u.id = m.responsable_id
-       LEFT JOIN faenas f ON f.id = m.faena_id`,
+       LEFT JOIN usuarios u
+         ON u.id = m.responsable_id
+       LEFT JOIN faenas f
+         ON f.id = m.faena_id`,
       { type: QueryTypes.SELECT }
     );
+
+    // =====================================================
+    // DESTINATARIOS ACTIVOS
+    // =====================================================
 
     const usuarios = await sequelize.query<Destinatario>(
-      `SELECT id, rol_id, faena_id
-       FROM usuarios WHERE activo = 1`,
+      `SELECT
+         id,
+         rol_id,
+         faena_id
+       FROM usuarios
+       WHERE activo = 1`,
       { type: QueryTypes.SELECT }
     );
 
-    const faenas = await sequelize.query<{
-      id: number;
-      empresa_id: number;
-      responsable_id: number;
-    }>(
-      `SELECT id, empresa_id, responsable_id
-       FROM faenas WHERE activo = 1`,
+    const faenas = await sequelize.query<FaenaDestino>(
+      `SELECT
+         id,
+         empresa_id,
+         responsable_id
+       FROM faenas
+       WHERE activo = 1`,
       { type: QueryTypes.SELECT }
     );
 
     const filas: Record<string, unknown>[] = [];
+    const pendientes: AlertaPendiente[] = [];
 
-    const pendientes: Array<{
-      destinatarios: number[];
-      claveEvento: string;
-      mensaje: string;
-      tipo: string;
-      origen: string;
-      faenaId: number;
-    }> = [];
+    // =====================================================
+    // EVALUACIÓN DE VENCIMIENTOS
+    // =====================================================
 
     for (const [tipo, registros] of [
       ['epp', epp],
       ['medida', medidas],
     ] as const) {
       for (const registro of registros) {
-        const fecha = fechaCalendario(registro.fecha_limite);
-        if (!fecha) continue;
+        const fecha = fechaCalendario(
+          registro.fecha_limite
+        );
+
+        if (!fecha) {
+          continue;
+        }
 
         const dias = diasHasta(fecha);
-        const hito = obtenerHito(tipo, registro.estado, dias);
-        if (!hito) continue;
 
-        const faenaId = Number(registro.faena_id);
-        const empresaId = Number(registro.empresa_id);
+        const hito = obtenerHito(
+          tipo,
+          registro.estado,
+          dias
+        );
+
+        if (!hito) {
+          continue;
+        }
+
+        const faenaId = Number(
+          registro.faena_id
+        );
+
+        const empresaId = Number(
+          registro.empresa_id
+        );
 
         if (
-          !Number.isSafeInteger(faenaId) || faenaId <= 0 ||
-          !Number.isSafeInteger(empresaId) || empresaId <= 0 ||
+          !Number.isSafeInteger(faenaId) ||
+          faenaId <= 0 ||
+          !Number.isSafeInteger(empresaId) ||
+          empresaId <= 0 ||
           Number(registro.faena_activa) !== 1
         ) {
           filas.push({
             modulo: tipo,
             registro: registro.id,
-            diagnostico: 'REVISAR: faena o empresa inválida',
+            diagnostico:
+              'REVISAR: faena o empresa inválida',
           });
+
           continue;
         }
 
         const destinatarios = new Set<number>();
 
-        // Avisos individuales: solo usuarios activos.
+        // =================================================
+        // TRABAJADOR RESPONSABLE
+        // =================================================
+
         const individual = usuarios.find(
-          u => u.id === Number(registro.usuario_id)
+          usuario =>
+            Number(usuario.id) ===
+            Number(registro.usuario_id)
         );
 
         if (
@@ -181,45 +432,86 @@ async function main(): Promise<void> {
           Number(registro.usuario_activo) === 1 &&
           Number(individual.faena_id) === faenaId
         ) {
-          destinatarios.add(individual.id);
+          destinatarios.add(
+            Number(individual.id)
+          );
         }
 
-        // Administradores de la empresa de origen.
+        // =================================================
+        // ADMINISTRADORES DE LA EMPRESA DE ORIGEN
+        // =================================================
+
         const faenasEmpresa = new Set(
-          faenas.filter(f => f.empresa_id === empresaId)
-            .map(f => f.id)
+          faenas
+            .filter(
+              faena =>
+                Number(faena.empresa_id) === empresaId
+            )
+            .map(faena => Number(faena.id))
         );
 
-        for (const u of usuarios) {
-          if (u.rol_id === 1 &&
-              u.faena_id != null &&
-              faenasEmpresa.has(u.faena_id)) {
-            destinatarios.add(u.id);
+        for (const usuario of usuarios) {
+          if (
+            Number(usuario.rol_id) === 1 &&
+            usuario.faena_id != null &&
+            faenasEmpresa.has(
+              Number(usuario.faena_id)
+            )
+          ) {
+            destinatarios.add(
+              Number(usuario.id)
+            );
           }
         }
 
-        // Supervisor activo responsable de esa faena.
-        const faena = faenas.find(f => f.id === faenaId);
-        const supervisor = usuarios.find(
-          u => u.id === faena?.responsable_id && u.rol_id === 2
-        );
-        if (supervisor) destinatarios.add(supervisor.id);
+        // =================================================
+        // SUPERVISOR DE LA FAENA DE ORIGEN
+        // =================================================
 
-        const claveEvento = `${tipo}:${registro.id}:${fecha}:${hito}`;
+        const faena = faenas.find(
+          elemento =>
+            Number(elemento.id) === faenaId
+        );
+
+        const supervisor = usuarios.find(
+          usuario =>
+            Number(usuario.id) ===
+              Number(faena?.responsable_id) &&
+            Number(usuario.rol_id) === 2 &&
+            Number(usuario.faena_id) === faenaId
+        );
+
+        if (supervisor) {
+          destinatarios.add(
+            Number(supervisor.id)
+          );
+        }
+
+        // =================================================
+        // CLAVE ÚNICA DEL EVENTO
+        // =================================================
+
+        const claveEvento =
+          `${tipo}:${registro.id}:${fecha}:${hito}`;
 
         const mensaje = tipo === 'epp'
           ? `Alerta de EPP: ${registro.descripcion}. ` +
-            (dias < 0
-              ? 'El elemento está vencido.'
-              : dias === 0
-                ? 'El elemento vence hoy.'
-                : `Faltan ${dias} días para su vencimiento.`)
-          : `Alerta de medida correctiva: ${registro.descripcion}. ` +
-            (dias < 0
-              ? 'La medida está fuera de plazo.'
-              : dias === 0
-                ? 'El plazo vence hoy.'
-                : `Faltan ${dias} días para su cumplimiento.`);
+            (
+              dias < 0
+                ? 'El elemento está vencido.'
+                : dias === 0
+                  ? 'El elemento vence hoy.'
+                  : `Faltan ${dias} días para su vencimiento.`
+            )
+          : `Alerta de medida correctiva: ` +
+            `${registro.descripcion}. ` +
+            (
+              dias < 0
+                ? 'La medida está fuera de plazo.'
+                : dias === 0
+                  ? 'El plazo vence hoy.'
+                  : `Faltan ${dias} días para su cumplimiento.`
+            );
 
         pendientes.push({
           destinatarios: [...destinatarios],
@@ -228,7 +520,9 @@ async function main(): Promise<void> {
           tipo: tipo === 'epp'
             ? 'alerta_vencimiento_epp'
             : 'alerta_vencimiento_medida',
-          origen: tipo === 'epp' ? 'epp' : 'medidas_correctivas',
+          origen: tipo === 'epp'
+            ? 'epp'
+            : 'medidas_correctivas',
           faenaId,
         });
 
@@ -240,7 +534,10 @@ async function main(): Promise<void> {
           hito,
           faena_id: faenaId,
           empresa_id: empresaId,
-          destinatarios: [...destinatarios].sort((a, b) => a - b).join(', ') || 'Ninguno',
+          destinatarios:
+            [...destinatarios]
+              .sort((a, b) => a - b)
+              .join(', ') || 'Ninguno',
           clave_evento: claveEvento,
         });
       }
@@ -248,36 +545,28 @@ async function main(): Promise<void> {
 
     console.table(filas);
 
-    const argumentos = process.argv.slice(2);
-    const enviar = argumentos.includes('--enviar');
-    const confirmar = argumentos.includes('--confirmar');
+    // =====================================================
+    // MODO SIMULACIÓN
+    // =====================================================
 
-    if (argumentos.some(arg =>
-      !['--enviar', '--confirmar'].includes(arg)
-    )) {
-      throw new Error('Argumento no reconocido.');
-    }
-
-    if (enviar !== confirmar) {
-      throw new Error(
-        'Para registrar alertas se requieren --enviar --confirmar.'
-      );
-    }
-
-    if (!enviar) {
+    if (!configuracion.enviar) {
       console.log(
-        '\\nSIMULACIÓN: no se generaron notificaciones.'
+        '\nSIMULACIÓN: no se generaron notificaciones.'
       );
+
       return;
     }
 
+    // =====================================================
+    // CONCILIACIÓN DE ALERTAS AUTOMÁTICAS
+    // =====================================================
 
-    // Conciliar únicamente alertas automáticas de vencimiento.
-    // Esta sección solo se ejecuta con --enviar --confirmar.
     const vigentes = new Set(
-      pendientes.flatMap(a =>
-        a.destinatarios.map(id =>
-          `${a.tipo}|${id}|${a.claveEvento}|${a.faenaId}`
+      pendientes.flatMap(alerta =>
+        alerta.destinatarios.map(
+          usuarioId =>
+            `${alerta.tipo}|${usuarioId}|` +
+            `${alerta.claveEvento}|${alerta.faenaId}`
         )
       )
     );
@@ -285,29 +574,47 @@ async function main(): Promise<void> {
     const anteriores = await Notificacion.findAll({
       where: {
         activo: true,
-        tipo: { [Op.in]: [
-          'alerta_vencimiento_epp',
-          'alerta_vencimiento_medida',
-        ] },
+        tipo: {
+          [Op.in]: [
+            'alerta_vencimiento_epp',
+            'alerta_vencimiento_medida',
+          ],
+        },
       },
     });
 
     let desactivadas = 0;
+
     for (const aviso of anteriores) {
-      const origenEsperado = aviso.tipo === 'alerta_vencimiento_epp'
-        ? 'epp' : 'medidas_correctivas';
+      const origenEsperado =
+        aviso.tipo === 'alerta_vencimiento_epp'
+          ? 'epp'
+          : 'medidas_correctivas';
 
-      if (aviso.origen !== origenEsperado) continue;
+      if (aviso.origen !== origenEsperado) {
+        continue;
+      }
 
-      const clave = `${aviso.tipo}|${aviso.usuario_id}|${aviso.clave_evento}|${aviso.faena_id}`;
+      const clave =
+        `${aviso.tipo}|${aviso.usuario_id}|` +
+        `${aviso.clave_evento}|${aviso.faena_id}`;
 
       if (!vigentes.has(clave)) {
-        await aviso.update({ activo: false });
+        await aviso.update({
+          activo: false,
+        });
+
         desactivadas++;
       }
     }
 
-    console.log(`Alertas obsoletas desactivadas: ${desactivadas}.`);
+    console.log(
+      `Alertas obsoletas desactivadas: ${desactivadas}.`
+    );
+
+    // =====================================================
+    // CREACIÓN Y REACTIVACIÓN
+    // =====================================================
 
     let creadas = 0;
     let existentes = 0;
@@ -315,42 +622,49 @@ async function main(): Promise<void> {
 
     for (const alerta of pendientes) {
       for (const usuarioId of alerta.destinatarios) {
-        const [notificacion, creada] = await Notificacion.findOrCreate({
-          where: {
-            usuario_id: usuarioId,
-            clave_evento: alerta.claveEvento,
-          },
-          defaults: {
-            usuario_id: usuarioId,
-            clave_evento: alerta.claveEvento,
-            mensaje: alerta.mensaje,
-            tipo: alerta.tipo,
-            origen: alerta.origen,
-            faena_id: alerta.faenaId,
-            leido: false,
-            activo: true,
-          },
-        });
+        const [notificacion, creada] =
+          await Notificacion.findOrCreate({
+            where: {
+              usuario_id: usuarioId,
+              clave_evento: alerta.claveEvento,
+            },
+            defaults: {
+              usuario_id: usuarioId,
+              clave_evento: alerta.claveEvento,
+              mensaje: alerta.mensaje,
+              tipo: alerta.tipo,
+              origen: alerta.origen,
+              faena_id: alerta.faenaId,
+              leido: false,
+              activo: true,
+            },
+          });
 
         if (creada) {
           creadas++;
-        } else {
-          if (
-            notificacion.tipo !== alerta.tipo ||
-            notificacion.origen !== alerta.origen ||
-            Number(notificacion.faena_id) !== alerta.faenaId
-          ) {
-            throw new Error(
-              'Conflicto de identidad de alerta existente.'
-            );
-          }
 
-          if (!notificacion.activo) {
-            await notificacion.update({ activo: true });
-            reactivadas++;
-          } else {
-            existentes++;
-          }
+          continue;
+        }
+
+        if (
+          notificacion.tipo !== alerta.tipo ||
+          notificacion.origen !== alerta.origen ||
+          Number(notificacion.faena_id) !==
+            alerta.faenaId
+        ) {
+          throw new Error(
+            'Conflicto de identidad de alerta existente.'
+          );
+        }
+
+        if (!notificacion.activo) {
+          await notificacion.update({
+            activo: true,
+          });
+
+          reactivadas++;
+        } else {
+          existentes++;
         }
       }
     }
@@ -360,6 +674,7 @@ async function main(): Promise<void> {
       `Ya existentes: ${existentes}. ` +
       `Reactivadas: ${reactivadas}.`
     );
+
     console.log(
       '\n✅ Registro de alertas finalizado.'
     );
@@ -369,6 +684,10 @@ async function main(): Promise<void> {
 }
 
 main().catch(error => {
-  console.error('❌ Error al simular alertas:', error);
+  console.error(
+    '❌ Error al procesar alertas:',
+    error
+  );
+
   process.exitCode = 1;
 });
