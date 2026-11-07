@@ -240,7 +240,7 @@ const verificarBaseParaEscritura = async (
   if (entornoProduccion) {
     if (
       process.env.DB_NAME !== BASE_PRODUCCION ||
-      baseActual !== BASE_PRODUCCION
+      baseActual?.toLowerCase() !== BASE_PRODUCCION.toLowerCase()
     ) {
       throw new Error(
         'BLOQUEADO: la base conectada no ' +
