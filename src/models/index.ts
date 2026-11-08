@@ -26,6 +26,11 @@ import { initEstadistica, Estadistica } from './estadistica.model';
 import { initComentario, Comentario } from './comentario.model';
 import { initHistorialCambio, HistorialCambio } from './historial_cambio.model';
 import { initRelDocumentoUsuario, RelDocumentoUsuario } from './rel_documentos_usuarios.model';
+import { initContratoExterno, ContratoExterno } from './contrato_externo.model';
+import {
+  initContratoExternoTrabajador,
+  ContratoExternoTrabajador,
+} from './contrato_externo_trabajador.model';
 
 // 🔹 Inicialización de modelos
 initRol(sequelize);
@@ -45,6 +50,8 @@ initEstadistica(sequelize);
 initComentario(sequelize);
 initHistorialCambio(sequelize);
 initRelDocumentoUsuario(sequelize);
+initContratoExterno(sequelize);
+initContratoExternoTrabajador(sequelize);
 
 // 🔹 Relaciones generales
 Usuario.belongsTo(Rol, { foreignKey: 'rol_id', as: 'rol' });
@@ -191,6 +198,61 @@ RelDocumentoUsuario.belongsTo(Usuario, { foreignKey: 'usuario_id', as: 'usuario'
 Documento.hasMany(RelDocumentoUsuario, { foreignKey: 'documento_id', as: 'asignaciones' });
 Usuario.hasMany(RelDocumentoUsuario, { foreignKey: 'usuario_id', as: 'asignaciones' });
 
+// Contratos de empresas externas
+ContratoExterno.belongsTo(Empresa, {
+  foreignKey: 'mandante_empresa_id',
+  as: 'mandante',
+});
+Empresa.hasMany(ContratoExterno, {
+  foreignKey: 'mandante_empresa_id',
+  as: 'contratos_como_mandante',
+});
+
+ContratoExterno.belongsTo(Empresa, {
+  foreignKey: 'contratista_empresa_id',
+  as: 'contratista',
+});
+Empresa.hasMany(ContratoExterno, {
+  foreignKey: 'contratista_empresa_id',
+  as: 'contratos_como_contratista',
+});
+
+ContratoExterno.belongsTo(Faena, {
+  foreignKey: 'faena_id',
+  as: 'faena',
+});
+Faena.hasMany(ContratoExterno, {
+  foreignKey: 'faena_id',
+  as: 'contratos_externos',
+});
+
+ContratoExterno.belongsTo(ContratoExterno, {
+  foreignKey: 'contrato_principal_id',
+  as: 'contrato_principal',
+});
+ContratoExterno.hasMany(ContratoExterno, {
+  foreignKey: 'contrato_principal_id',
+  as: 'subcontratos',
+});
+
+ContratoExternoTrabajador.belongsTo(ContratoExterno, {
+  foreignKey: 'contrato_id',
+  as: 'contrato',
+});
+ContratoExterno.hasMany(ContratoExternoTrabajador, {
+  foreignKey: 'contrato_id',
+  as: 'trabajadores_vinculados',
+});
+
+ContratoExternoTrabajador.belongsTo(Usuario, {
+  foreignKey: 'usuario_id',
+  as: 'usuario',
+});
+Usuario.hasMany(ContratoExternoTrabajador, {
+  foreignKey: 'usuario_id',
+  as: 'contratos_externos',
+});
+
 // ✅ Exportación de modelos
 export {
   sequelize,
@@ -216,4 +278,6 @@ export {
   Comentario,
   HistorialCambio,
   RelDocumentoUsuario,
+  ContratoExterno,
+  ContratoExternoTrabajador,
 };
