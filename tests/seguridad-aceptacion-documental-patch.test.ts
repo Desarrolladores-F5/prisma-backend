@@ -35,7 +35,7 @@ import { validarToken } from '../src/middlewares/validarToken';
 import { confirmarRecepcion } from '../src/controllers/rel_documentos_usuarios.controller';
 
 describe('Seguridad - aceptación documental PATCH', () => {
-  const secreto = 'clave-exclusiva-pruebas-patch';
+  const secreto = 'clave-exclusiva-pruebas-patch-segura-2026';
   const secretoAnterior = process.env.JWT_SECRET;
   const ruta = '/api/rel-documentos-usuarios/confirmar/45';
   const constancia = '/uploads/confirmaciones/constancia-ficticia.pdf';

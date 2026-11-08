@@ -23,7 +23,7 @@ import { validarToken } from '../src/middlewares/validarToken';
 import { crearFirma } from '../src/controllers/firma_digital.controller';
 
 describe('Seguridad documental - identidad del firmante', () => {
-  const secreto = 'clave-exclusiva-pruebas-prisma';
+  const secreto = 'clave-exclusiva-pruebas-prisma-segura-2026';
   const secretoAnterior = process.env.JWT_SECRET;
 
   const app = express();

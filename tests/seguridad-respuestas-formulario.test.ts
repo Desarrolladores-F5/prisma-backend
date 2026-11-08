@@ -16,7 +16,7 @@ import { validarToken } from '../src/middlewares/validarToken';
 import { obtenerRespuestaPorId } from '../src/controllers/respuesta_formulario.controller';
 
 describe('Seguridad - acceso a respuestas de formularios', () => {
-  const secreto = 'clave-exclusiva-pruebas-prisma';
+  const secreto = 'clave-exclusiva-pruebas-prisma-segura-2026';
   const secretoAnterior = process.env.JWT_SECRET;
 
   const app = express();

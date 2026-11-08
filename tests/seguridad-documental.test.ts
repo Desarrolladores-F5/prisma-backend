@@ -21,7 +21,7 @@ import { validarToken } from '../src/middlewares/validarToken';
 import { obtenerDocumentosPorUsuario } from '../src/controllers/rel_documentos_usuarios.controller';
 
 describe('Seguridad documental - consulta de asignaciones', () => {
-  const secreto = 'clave-exclusiva-pruebas-prisma';
+  const secreto = 'clave-exclusiva-pruebas-prisma-segura-2026';
 
   const app = express();
   app.get(
