@@ -32,6 +32,11 @@ import {
   ContratoExternoTrabajador,
 } from './contrato_externo_trabajador.model';
 
+import {
+  initUsuarioEmpresaExterna,
+  UsuarioEmpresaExterna,
+} from './usuario_empresa_externa.model';
+
 // 🔹 Inicialización de modelos
 initRol(sequelize);
 initUsuario(sequelize);
@@ -52,6 +57,7 @@ initHistorialCambio(sequelize);
 initRelDocumentoUsuario(sequelize);
 initContratoExterno(sequelize);
 initContratoExternoTrabajador(sequelize);
+initUsuarioEmpresaExterna(sequelize);
 
 // 🔹 Relaciones generales
 Usuario.belongsTo(Rol, { foreignKey: 'rol_id', as: 'rol' });
@@ -253,6 +259,27 @@ Usuario.hasMany(ContratoExternoTrabajador, {
   as: 'contratos_externos',
 });
 
+// Vinculación de usuarios con empresas externas
+UsuarioEmpresaExterna.belongsTo(Usuario, {
+  foreignKey: 'usuario_id',
+  as: 'usuario',
+});
+
+Usuario.hasMany(UsuarioEmpresaExterna, {
+  foreignKey: 'usuario_id',
+  as: 'vinculaciones_empresas_externas',
+});
+
+UsuarioEmpresaExterna.belongsTo(Empresa, {
+  foreignKey: 'empresa_id',
+  as: 'empresa',
+});
+
+Empresa.hasMany(UsuarioEmpresaExterna, {
+  foreignKey: 'empresa_id',
+  as: 'usuarios_externos_vinculados',
+});
+
 // ✅ Exportación de modelos
 export {
   sequelize,
@@ -280,4 +307,5 @@ export {
   RelDocumentoUsuario,
   ContratoExterno,
   ContratoExternoTrabajador,
+  UsuarioEmpresaExterna,
 };
