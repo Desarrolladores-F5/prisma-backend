@@ -3,7 +3,7 @@
 
 import sequelize from '../config/database';
 
-// 🔰 Importación e inicialización de modelos
+// Importación e inicialización de modelos
 import { initRol, Rol } from './rol.model';
 import { initUsuario, Usuario } from './usuario.model';
 import { initReporte, Reporte } from './reporte.model';
@@ -27,6 +27,7 @@ import { initComentario, Comentario } from './comentario.model';
 import { initHistorialCambio, HistorialCambio } from './historial_cambio.model';
 import { initRelDocumentoUsuario, RelDocumentoUsuario } from './rel_documentos_usuarios.model';
 import { initContratoExterno, ContratoExterno } from './contrato_externo.model';
+
 import {
   initContratoExternoTrabajador,
   ContratoExternoTrabajador,
@@ -37,7 +38,12 @@ import {
   UsuarioEmpresaExterna,
 } from './usuario_empresa_externa.model';
 
-// 🔹 Inicialización de modelos
+import {
+  initAcreditacionDocumentalExterna,
+  AcreditacionDocumentalExterna,
+} from './acreditacion_documental_externa.model';
+
+// Inicialización de modelos
 initRol(sequelize);
 initUsuario(sequelize);
 initReporte(sequelize);
@@ -58,8 +64,9 @@ initRelDocumentoUsuario(sequelize);
 initContratoExterno(sequelize);
 initContratoExternoTrabajador(sequelize);
 initUsuarioEmpresaExterna(sequelize);
+initAcreditacionDocumentalExterna(sequelize);
 
-// 🔹 Relaciones generales
+// Relaciones generales
 Usuario.belongsTo(Rol, { foreignKey: 'rol_id', as: 'rol' });
 Rol.hasMany(Usuario, { foreignKey: 'rol_id', as: 'usuarios' });
 
@@ -158,15 +165,15 @@ Faena.hasMany(Inspeccion, { foreignKey: 'faena_id', as: 'inspecciones' });
 Inspeccion.belongsTo(Usuario, { foreignKey: 'inspector_id', as: 'inspector' });
 Usuario.hasMany(Inspeccion, { foreignKey: 'inspector_id', as: 'inspecciones_realizadas' });
 
-// 🔗 Asociación entre Comentario y Usuario
+// Asociación entre Comentario y Usuario
 Comentario.belongsTo(Usuario, { foreignKey: 'autor_id', as: 'autor' });
 Usuario.hasMany(Comentario, { foreignKey: 'autor_id', as: 'comentarios' });
 
-// 🔗 Asociación entre HistorialCambio y Usuario
+// Asociación entre HistorialCambio y Usuario
 HistorialCambio.belongsTo(Usuario, { foreignKey: 'usuario_id', as: 'usuario' });
 Usuario.hasMany(HistorialCambio, { foreignKey: 'usuario_id', as: 'historial_cambios' });
 
-// 🔁 Corrección aquí — relación entre FirmaDigital, Usuario y Documento
+// Relaciones de firmas digitales
 FirmaDigital.belongsTo(Usuario, { foreignKey: 'firmante_id', as: 'firmante' });
 Usuario.hasMany(FirmaDigital, { foreignKey: 'firmante_id', as: 'firmas_digitales' });
 
@@ -182,7 +189,7 @@ Faena.hasMany(EPP, { foreignKey: 'faena_id', as: 'epp_faena' });
 Formulario.belongsTo(Faena, { foreignKey: 'faena_id', as: 'faena' });
 Faena.hasMany(Formulario, { foreignKey: 'faena_id', as: 'formularios' });
 
-// Relación muchos a muchos: Documento ←→ Usuario
+// Relación muchos a muchos: Documento <-> Usuario
 Documento.belongsToMany(Usuario, {
   through: RelDocumentoUsuario,
   foreignKey: 'documento_id',
@@ -197,7 +204,7 @@ Usuario.belongsToMany(Documento, {
   as: 'documentos_asignados',
 });
 
-// Relaciones explícitas tabla intermedia
+// Relaciones explícitas de la tabla intermedia
 RelDocumentoUsuario.belongsTo(Documento, { foreignKey: 'documento_id', as: 'documento' });
 RelDocumentoUsuario.belongsTo(Usuario, { foreignKey: 'usuario_id', as: 'usuario' });
 
@@ -209,6 +216,7 @@ ContratoExterno.belongsTo(Empresa, {
   foreignKey: 'mandante_empresa_id',
   as: 'mandante',
 });
+
 Empresa.hasMany(ContratoExterno, {
   foreignKey: 'mandante_empresa_id',
   as: 'contratos_como_mandante',
@@ -218,6 +226,7 @@ ContratoExterno.belongsTo(Empresa, {
   foreignKey: 'contratista_empresa_id',
   as: 'contratista',
 });
+
 Empresa.hasMany(ContratoExterno, {
   foreignKey: 'contratista_empresa_id',
   as: 'contratos_como_contratista',
@@ -227,6 +236,7 @@ ContratoExterno.belongsTo(Faena, {
   foreignKey: 'faena_id',
   as: 'faena',
 });
+
 Faena.hasMany(ContratoExterno, {
   foreignKey: 'faena_id',
   as: 'contratos_externos',
@@ -236,6 +246,7 @@ ContratoExterno.belongsTo(ContratoExterno, {
   foreignKey: 'contrato_principal_id',
   as: 'contrato_principal',
 });
+
 ContratoExterno.hasMany(ContratoExterno, {
   foreignKey: 'contrato_principal_id',
   as: 'subcontratos',
@@ -245,6 +256,7 @@ ContratoExternoTrabajador.belongsTo(ContratoExterno, {
   foreignKey: 'contrato_id',
   as: 'contrato',
 });
+
 ContratoExterno.hasMany(ContratoExternoTrabajador, {
   foreignKey: 'contrato_id',
   as: 'trabajadores_vinculados',
@@ -254,6 +266,7 @@ ContratoExternoTrabajador.belongsTo(Usuario, {
   foreignKey: 'usuario_id',
   as: 'usuario',
 });
+
 Usuario.hasMany(ContratoExternoTrabajador, {
   foreignKey: 'usuario_id',
   as: 'contratos_externos',
@@ -280,7 +293,66 @@ Empresa.hasMany(UsuarioEmpresaExterna, {
   as: 'usuarios_externos_vinculados',
 });
 
-// ✅ Exportación de modelos
+// =========================================================
+// Acreditaciones documentales externas
+// =========================================================
+
+// Contrato asociado a la acreditación
+AcreditacionDocumentalExterna.belongsTo(ContratoExterno, {
+  foreignKey: 'contrato_id',
+  as: 'contrato',
+});
+
+ContratoExterno.hasMany(AcreditacionDocumentalExterna, {
+  foreignKey: 'contrato_id',
+  as: 'acreditaciones_documentales',
+});
+
+// Documento existente utilizado como evidencia
+AcreditacionDocumentalExterna.belongsTo(Documento, {
+  foreignKey: 'documento_id',
+  as: 'documento',
+});
+
+Documento.hasMany(AcreditacionDocumentalExterna, {
+  foreignKey: 'documento_id',
+  as: 'acreditaciones_externas',
+});
+
+// Vinculación del trabajador con el contrato
+AcreditacionDocumentalExterna.belongsTo(ContratoExternoTrabajador, {
+  foreignKey: 'contrato_trabajador_id',
+  as: 'trabajador_vinculado',
+});
+
+ContratoExternoTrabajador.hasMany(AcreditacionDocumentalExterna, {
+  foreignKey: 'contrato_trabajador_id',
+  as: 'acreditaciones_documentales',
+});
+
+// Usuario que presenta el documento
+AcreditacionDocumentalExterna.belongsTo(Usuario, {
+  foreignKey: 'presentado_por',
+  as: 'presentador',
+});
+
+Usuario.hasMany(AcreditacionDocumentalExterna, {
+  foreignKey: 'presentado_por',
+  as: 'acreditaciones_presentadas',
+});
+
+// Usuario que revisa la acreditación
+AcreditacionDocumentalExterna.belongsTo(Usuario, {
+  foreignKey: 'revisado_por',
+  as: 'revisor',
+});
+
+Usuario.hasMany(AcreditacionDocumentalExterna, {
+  foreignKey: 'revisado_por',
+  as: 'acreditaciones_revisadas',
+});
+
+// Exportación de modelos
 export {
   sequelize,
   Rol,
@@ -308,4 +380,5 @@ export {
   ContratoExterno,
   ContratoExternoTrabajador,
   UsuarioEmpresaExterna,
+  AcreditacionDocumentalExterna,
 };
