@@ -1,4 +1,6 @@
 import { Op } from 'sequelize';
+import type { Transaction } from 'sequelize';
+
 import { Faena, Usuario } from '../models';
 
 type TipoAsignacion = 'usuarios' | 'rol' | 'todos';
@@ -8,6 +10,10 @@ interface SolicitudDestinatarios {
   asignacionTipo: TipoAsignacion;
   usuarioIds?: number[];
   rolId?: number;
+}
+
+export interface OpcionesEmpresaAdministrador {
+  transaction?: Transaction;
 }
 
 export class ErrorAsignacionDocumental extends Error {
@@ -26,11 +32,19 @@ const idValido = (id: unknown): id is number =>
   id > 0;
 
 /**
- * Obtiene la empresa real del administrador desde la base de datos.
+ * Obtiene la empresa real del administrador desde MySQL.
+ *
  * Nunca confía en un empresa_id enviado por el frontend.
+ *
+ * El segundo parámetro es opcional para mantener
+ * compatibilidad con todos los módulos existentes.
+ *
+ * Cuando se proporciona una transacción, las consultas
+ * de Usuario y Faena utilizan esa misma transacción.
  */
 export const obtenerEmpresaAdministrador = async (
-  administradorId: number
+  administradorId: number,
+  opciones: OpcionesEmpresaAdministrador = {}
 ): Promise<number> => {
   if (!idValido(administradorId)) {
     throw new ErrorAsignacionDocumental(
@@ -39,8 +53,13 @@ export const obtenerEmpresaAdministrador = async (
     );
   }
 
+  const opcionesTransaccion = opciones.transaction
+    ? { transaction: opciones.transaction }
+    : {};
+
   const administrador = await Usuario.findByPk(administradorId, {
     attributes: ['id', 'rol_id', 'activo', 'faena_id'],
+    ...opcionesTransaccion,
   });
 
   if (
@@ -57,6 +76,7 @@ export const obtenerEmpresaAdministrador = async (
 
   const faena = await Faena.findByPk(administrador.faena_id, {
     attributes: ['id', 'empresa_id'],
+    ...opcionesTransaccion,
   });
 
   const empresaId = Number(faena?.get('empresa_id'));
@@ -93,9 +113,11 @@ export const resolverDestinatariosDocumento = async ({
 
   if (
     asignacionTipo === 'usuarios' &&
-    (!Array.isArray(usuarioIds) ||
+    (
+      !Array.isArray(usuarioIds) ||
       usuarioIds.length === 0 ||
-      !usuarioIds.every(idValido))
+      !usuarioIds.every(idValido)
+    )
   ) {
     throw new ErrorAsignacionDocumental(
       400,
