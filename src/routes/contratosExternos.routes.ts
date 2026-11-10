@@ -9,18 +9,34 @@ import {
 
 import {
   crearContratoExternoHttp,
+  obtenerContratosExternosHttp,
 } from '../controllers/contratosExternos.controller';
 
 const router = Router();
 
 /**
+ * GET /api/contratos-externos
+ *
+ * Consulta los contratos pertenecientes a la empresa
+ * mandante del administrador autenticado.
+ *
+ * La empresa se determina desde MySQL,
+ * nunca desde parámetros enviados por el frontend.
+ */
+router.get(
+  '/',
+  validarToken,
+  esAdministrador,
+  obtenerContratosExternosHttp
+);
+
+/**
  * POST /api/contratos-externos
  *
- * Permite crear un contrato externo a un administrador
- * de la empresa mandante.
+ * Crea un contrato externo para la empresa mandante
+ * del administrador autenticado.
  *
- * La identidad procede del JWT.
- * La pertenencia empresarial y los permisos vigentes
+ * Los permisos vigentes y la pertenencia empresarial
  * se verifican mediante el servicio de negocio.
  */
 router.post(

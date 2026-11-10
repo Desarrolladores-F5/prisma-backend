@@ -7,13 +7,18 @@ import {
   ErrorContratoExterno,
 } from '../services/contratosExternos.service';
 
-import {
-  ErrorAsignacionDocumental,
-} from '../services/asignacionDocumental.service';
-
 import type {
   SolicitudCrearContratoExterno,
 } from '../services/contratosExternos.service';
+
+import {
+  obtenerContratosExternosMandante,
+  ErrorConsultaContratosExternos,
+} from '../services/consultaContratosExternos.service';
+
+import {
+  ErrorAsignacionDocumental,
+} from '../services/asignacionDocumental.service';
 
 import type {
   RequestConUsuario,
@@ -31,6 +36,14 @@ const esObjeto = (
   valor !== null &&
   !Array.isArray(valor);
 
+/**
+ * POST /api/contratos-externos
+ *
+ * Crea un contrato externo desde una empresa mandante.
+ *
+ * El administrador se identifica mediante el JWT.
+ * La empresa mandante se determina desde MySQL.
+ */
 export const crearContratoExternoHttp = async (
   req: Request,
   res: Response
@@ -110,6 +123,55 @@ export const crearContratoExternoHttp = async (
 
     res.status(500).json({
       mensaje: 'No fue posible crear el contrato externo.',
+    });
+  }
+};
+
+/**
+ * GET /api/contratos-externos
+ *
+ * Devuelve exclusivamente los contratos pertenecientes
+ * a la empresa mandante del administrador autenticado.
+ *
+ * No recibe identificadores empresariales del frontend.
+ */
+export const obtenerContratosExternosHttp = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const usuario = (req as RequestConUsuario).usuario;
+
+  if (!idValido(usuario?.id)) {
+    res.status(401).json({
+      mensaje: 'Usuario no autenticado.',
+    });
+    return;
+  }
+
+  try {
+    const contratos = await obtenerContratosExternosMandante({
+      administradorId: usuario.id,
+    });
+
+    res.status(200).json(contratos);
+  } catch (error) {
+    if (
+      error instanceof ErrorConsultaContratosExternos ||
+      error instanceof ErrorAsignacionDocumental
+    ) {
+      res.status(error.estadoHttp).json({
+        mensaje: error.message,
+      });
+      return;
+    }
+
+    console.error(
+      'Error interno al consultar contratos externos:',
+      error
+    );
+
+    res.status(500).json({
+      mensaje: 'No fue posible consultar los contratos externos.',
     });
   }
 };
