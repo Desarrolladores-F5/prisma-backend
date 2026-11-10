@@ -1,4 +1,5 @@
-// src/server.ts
+// src/app.ts
+
 import express from 'express';
 import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
@@ -93,6 +94,7 @@ import auditoriaRoutes from './routes/auditoria.routes';
 import authRoutes from './routes/auth.routes';
 import capacitacionRoutes from './routes/capacitacion.routes';
 import comentarioRoutes from './routes/comentario.routes';
+import contratoExternoRoutes from './routes/contratosExternos.routes';
 import documentoRoutes from './routes/documento.routes';
 import empresaRoutes from './routes/empresa.routes';
 import eppRoutes from './routes/epp.routes';
@@ -122,6 +124,7 @@ app.use('/api/auditorias', auditoriaRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/capacitaciones', capacitacionRoutes);
 app.use('/api/comentarios', comentarioRoutes);
+app.use('/api/contratos-externos', contratoExternoRoutes);
 app.use('/api/documentos', documentoRoutes);
 app.use('/api/empresas', empresaRoutes);
 app.use('/api/epp', eppRoutes);

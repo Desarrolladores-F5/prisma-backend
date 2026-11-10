@@ -134,9 +134,14 @@ export const crearContratoExterno = async ({
   // La mandante se identifica mediante el administrador
   // registrado en la base de datos.
   // Nunca se acepta mandante_empresa_id desde el frontend.
-  const mandanteEmpresaId = await obtenerEmpresaAdministrador(
-    administradorId
-  );
+  const mandanteEmpresaId = transaction
+    ? await obtenerEmpresaAdministrador(
+        administradorId,
+        { transaction }
+      )
+    : await obtenerEmpresaAdministrador(
+        administradorId
+      );
 
   if (mandanteEmpresaId === contratistaEmpresaId) {
     throw new ErrorContratoExterno(
