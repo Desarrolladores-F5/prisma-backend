@@ -1,3 +1,4 @@
+import type { Transaction } from 'sequelize';
 import { Formulario } from '../models';
 import { Capacitacion, Examen } from '../models';
 //src/services/notificacionesAutomaticas.service.ts
@@ -14,6 +15,7 @@ interface CrearNotificacionesAutomaticas {
   roles?: RolNotificable[];
   faenaId?: number;
   agregarUsuarioIdClave?: boolean;
+  transaction?: Transaction;
 }
 
 /**
@@ -32,6 +34,7 @@ export const crearNotificacionesAutomaticas = async ({
   roles = [],
   faenaId,
   agregarUsuarioIdClave = false,
+  transaction,
 }: CrearNotificacionesAutomaticas): Promise<number> => {
   const idValido = (id: unknown): id is number =>
     typeof id === 'number' &&
@@ -62,6 +65,7 @@ export const crearNotificacionesAutomaticas = async ({
     for (const id of new Set(destinatariosIds)) {
       const usuario = await Usuario.findByPk(id, {
         attributes: ['id', 'activo', 'faena_id'],
+        transaction,
       });
       if (!usuario || usuario.activo !== true ||
           Number(usuario.faena_id) !== faenaId) {
@@ -79,6 +83,7 @@ export const crearNotificacionesAutomaticas = async ({
   if (roles.includes(1) && faenaId !== undefined) {
     const faenaOrigen = await Faena.findByPk(faenaId, {
       attributes: ['id', 'empresa_id'],
+      transaction,
     });
 
     const empresaId = Number(faenaOrigen?.get('empresa_id'));
@@ -95,6 +100,7 @@ export const crearNotificacionesAutomaticas = async ({
         rol_id: 1,
         activo: true,
       },
+      transaction,
       include: [{
         model: Faena,
         as: 'faena',
@@ -115,6 +121,7 @@ export const crearNotificacionesAutomaticas = async ({
   if (roles.includes(2) && faenaId !== undefined) {
     const faena = await Faena.findByPk(faenaId, {
       attributes: ['id', 'responsable_id'],
+      transaction,
     });
 
     const responsableId = Number(faena?.get('responsable_id'));
@@ -127,6 +134,7 @@ export const crearNotificacionesAutomaticas = async ({
           rol_id: 2,
           activo: true,
         },
+        transaction,
       });
 
       supervisores.forEach((usuario) => {
@@ -162,6 +170,7 @@ export const crearNotificacionesAutomaticas = async ({
         clave_evento: clave,
       },
       defaults: defaults as any,
+      transaction,
     });
 
     if (creada) creadas++;
