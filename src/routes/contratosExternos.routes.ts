@@ -20,6 +20,10 @@ import {
   registrarAcreditacionExternaHttp,
 } from '../controllers/acreditacionesExternas.controller';
 
+import {
+  revisarAcreditacionExternaHttp,
+} from '../controllers/revisionAcreditacionesExternas.controller';
+
 const router = Router();
 
 /**
@@ -71,18 +75,33 @@ router.post(
  * Presenta una acreditación documental externa.
  *
  * La identidad se obtiene exclusivamente del JWT.
+ * La autorización empresarial y documental se comprueba
+ * mediante los servicios de negocio.
  *
- * La autorización se verifica contra la vinculación
- * empresarial vigente, el contrato, el requisito
- * y la pertenencia del documento.
- *
- * Las presentaciones se registran inicialmente
- * con estado pendiente.
+ * Las presentaciones comienzan en estado pendiente.
  */
 router.post(
   '/:contratoId/acreditaciones',
   validarToken,
   registrarAcreditacionExternaHttp
+);
+
+/**
+ * PATCH /api/contratos-externos/acreditaciones/:acreditacionId/revision
+ *
+ * Permite iniciar, aprobar o rechazar una revisión documental.
+ *
+ * La identidad proviene del JWT.
+ * El servicio verifica en MySQL que el administrador
+ * pertenezca a la empresa mandante del contrato.
+ *
+ * Las transiciones de estado están protegidas
+ * mediante transacciones y actualizaciones condicionales.
+ */
+router.patch(
+  '/acreditaciones/:acreditacionId/revision',
+  validarToken,
+  revisarAcreditacionExternaHttp
 );
 
 export default router;
