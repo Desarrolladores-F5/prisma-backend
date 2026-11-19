@@ -1,3 +1,5 @@
+import { QueryTypes } from 'sequelize';
+import { crearNotificacionesAutomaticas } from './notificacionesAutomaticas.service';
 // src/services/revisionAcreditacionDocumentalExterna.service.ts
 
 import type { Transaction } from 'sequelize';
@@ -248,6 +250,54 @@ export const revisarAcreditacionDocumentalExterna = async ({
         409,
         'La acreditación fue modificada por otra solicitud.'
       );
+    }
+
+    const [destinatario] = await sequelize.query<{ usuarioId: number }>(
+      [
+        'SELECT u.id AS usuarioId',
+        'FROM acreditaciones_documentales_externas a',
+        'JOIN contratos_externos c ON c.id = a.contrato_id',
+        'JOIN empresas e ON e.id = c.contratista_empresa_id AND e.activo = 1',
+        'JOIN usuarios u ON u.id = a.presentado_por AND u.activo = 1',
+        'JOIN usuarios_empresas_externas v ON v.usuario_id = u.id',
+        '  AND v.empresa_id = e.id AND v.activo = 1',
+        "  AND v.perfil = 'administrador_externo'",
+        'WHERE a.id = :acreditacionId AND c.id = :contratoId',
+        '  AND c.mandante_empresa_id = :mandanteEmpresaId',
+        'LIMIT 1',
+      ].join('\n'),
+      {
+        replacements: {
+          acreditacionId: autorizacion.acreditacionId,
+          contratoId: autorizacion.contratoId,
+          mandanteEmpresaId: autorizacion.mandanteEmpresaId,
+        },
+        type: QueryTypes.SELECT,
+        transaction,
+      }
+    );
+
+    if (destinatario) {
+      const usuarioId = Number(destinatario.usuarioId);
+      const aprobada = nuevoEstado === 'aprobado';
+
+      await crearNotificacionesAutomaticas({
+        mensaje: aprobada
+          ? 'La mandante aprobó tu entrega documental N.º ' +
+            autorizacion.acreditacionId + '.'
+          : 'La mandante rechazó tu entrega documental N.º ' +
+            autorizacion.acreditacionId +
+            '. Revisa el motivo en Documentos solicitados.',
+        tipo: aprobada
+          ? 'aprobacion_documental_externa'
+          : 'rechazo_documental_externo',
+        origen: 'acreditaciones_externas',
+        claveEvento: 'acreditacion_externa:decision:' +
+          autorizacion.acreditacionId + ':' + nuevoEstado,
+        destinatariosIds: [usuarioId],
+        agregarUsuarioIdClave: true,
+        transaction,
+      });
     }
 
     return {

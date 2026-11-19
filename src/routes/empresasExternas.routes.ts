@@ -3,7 +3,7 @@
 import { Router } from 'express';
 
 import {
-  validarToken,
+  validarTokenExternoPermitido,
 } from '../middlewares/validarToken';
 
 import {
@@ -20,7 +20,7 @@ const router = Router();
  */
 router.get(
   '/mis-empresas',
-  validarToken,
+  validarTokenExternoPermitido,
   consultarMisEmpresasExternasHttp
 );
 

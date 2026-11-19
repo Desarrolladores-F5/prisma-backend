@@ -9,6 +9,7 @@ import {
 vi.mock('../src/models', () => ({
   sequelize: {
     transaction: vi.fn(),
+    query: vi.fn(),
   },
   AcreditacionDocumentalExterna: {
     findByPk: vi.fn(),
@@ -23,10 +24,18 @@ vi.mock(
   })
 );
 
+vi.mock('../src/services/notificacionesAutomaticas.service', () => ({
+  crearNotificacionesAutomaticas: vi.fn(),
+}));
+
 import {
   sequelize,
   AcreditacionDocumentalExterna,
 } from '../src/models';
+
+import {
+  crearNotificacionesAutomaticas,
+} from '../src/services/notificacionesAutomaticas.service';
 
 import {
   autorizarRevisionDocumentalExterna,
@@ -63,6 +72,8 @@ describe('Seguridad de revisión de acreditaciones externas', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    vi.mocked(sequelize.query).mockImplementation(async () => []);
+    vi.mocked(crearNotificacionesAutomaticas).mockResolvedValue(1);
 
     vi.mocked(sequelize.transaction).mockImplementation(
       (async (callback: any) => {
@@ -134,6 +145,10 @@ describe('Seguridad de revisión de acreditaciones externas', () => {
   });
 
   it('aprueba una acreditación en revisión', async () => {
+    vi.mocked(sequelize.query).mockImplementationOnce(
+      async () => [{ usuarioId: 34 }]
+    );
+
     vi.mocked(AcreditacionDocumentalExterna.findByPk)
       .mockResolvedValue({
         ...acreditacionBase,
@@ -148,6 +163,26 @@ describe('Seguridad de revisión de acreditaciones externas', () => {
       });
 
     expect(resultado.estado).toBe('aprobado');
+    expect(sequelize.query).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        replacements: { acreditacionId: 100, contratoId: 50, mandanteEmpresaId: 1 },
+        transaction: transaccion,
+      })
+    );
+    expect(AcreditacionDocumentalExterna.update).toHaveBeenCalledWith(
+      expect.objectContaining({ estado: 'aprobado' }),
+      expect.objectContaining({ transaction: transaccion })
+    );
+    expect(crearNotificacionesAutomaticas).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        tipo: 'aprobacion_documental_externa',
+        claveEvento: 'acreditacion_externa:decision:100:aprobado',
+        destinatariosIds: [34],
+        transaction: transaccion,
+      })
+    );
+
     expect(resultado.revisadoPor).toBe(2);
 
     expect(AcreditacionDocumentalExterna.update)
@@ -169,6 +204,10 @@ describe('Seguridad de revisión de acreditaciones externas', () => {
   });
 
   it('rechaza una acreditación con observaciones', async () => {
+    vi.mocked(sequelize.query).mockImplementationOnce(
+      async () => [{ usuarioId: 34 }]
+    );
+
     vi.mocked(AcreditacionDocumentalExterna.findByPk)
       .mockResolvedValue({
         ...acreditacionBase,
@@ -184,6 +223,26 @@ describe('Seguridad de revisión de acreditaciones externas', () => {
       });
 
     expect(resultado.estado).toBe('rechazado');
+    expect(sequelize.query).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        replacements: { acreditacionId: 100, contratoId: 50, mandanteEmpresaId: 1 },
+        transaction: transaccion,
+      })
+    );
+    expect(AcreditacionDocumentalExterna.update).toHaveBeenCalledWith(
+      expect.objectContaining({ estado: 'rechazado' }),
+      expect.objectContaining({ transaction: transaccion })
+    );
+    expect(crearNotificacionesAutomaticas).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        tipo: 'rechazo_documental_externo',
+        claveEvento: 'acreditacion_externa:decision:100:rechazado',
+        destinatariosIds: [34],
+        transaction: transaccion,
+      })
+    );
+
     expect(resultado.observaciones)
       .toBe('Documento ilegible');
 
@@ -196,6 +255,23 @@ describe('Seguridad de revisión de acreditaciones externas', () => {
         }),
         expect.any(Object)
       );
+  });
+
+  it('guarda la decisión sin aviso si no hay destinatario autorizado', async () => {
+    vi.mocked(AcreditacionDocumentalExterna.findByPk).mockResolvedValue({
+      ...acreditacionBase,
+      estado: 'en_revision',
+      revisado_por: 2,
+    } as any);
+
+    const resultado = await revisarAcreditacionDocumentalExterna({
+      ...solicitudBase,
+      accion: 'aprobar',
+    });
+
+    expect(resultado.estado).toBe('aprobado');
+    expect(sequelize.query).toHaveBeenCalledOnce();
+    expect(crearNotificacionesAutomaticas).not.toHaveBeenCalled();
   });
 
   it('impide rechazar sin observaciones', async () => {

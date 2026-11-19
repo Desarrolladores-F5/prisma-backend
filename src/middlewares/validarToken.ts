@@ -5,7 +5,7 @@ export interface RequestConUsuario extends Request {
   usuario?: any;
 }
 
-export const validarToken = (
+const autenticarToken = (
   req: Request,
   res: Response,
   next: NextFunction
@@ -55,6 +55,27 @@ export const validarToken = (
       mensaje: 'Token inválido o expirado',
     });
   }
+};
+
+export const ROL_USUARIO_EXTERNO = 4;
+
+export const validarTokenExternoPermitido = autenticarToken;
+
+export const validarToken = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  autenticarToken(req, res, () => {
+    if ((req as RequestConUsuario).usuario?.rol_id === ROL_USUARIO_EXTERNO) {
+      res.status(403).json({
+        mensaje: 'Esta operación no está disponible para usuarios externos.',
+      });
+      return;
+    }
+
+    next();
+  });
 };
 
 export const esAdministrador = (

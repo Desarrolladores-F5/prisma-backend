@@ -92,9 +92,12 @@ app.use(
 
 import auditoriaRoutes from './routes/auditoria.routes';
 import authRoutes from './routes/auth.routes';
+import { validarToken as exigirSesionInterna } from './middlewares/validarToken';
 import capacitacionRoutes from './routes/capacitacion.routes';
 import comentarioRoutes from './routes/comentario.routes';
 import contratoExternoRoutes from './routes/contratosExternos.routes';
+import archivosAcreditacionesExternasRoutes from './routes/archivosAcreditacionesExternas.routes';
+import requisitosDocumentalesExternosRoutes from './routes/requisitosDocumentalesExternos.routes';
 import documentoRoutes from './routes/documento.routes';
 import empresaRoutes from './routes/empresa.routes';
 import empresasExternasRoutes from './routes/empresasExternas.routes';
@@ -124,8 +127,10 @@ import relDocumentoUsuarioRoutes from './routes/rel_documentos_usuarios.routes';
 app.use('/api/auditorias', auditoriaRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/capacitaciones', capacitacionRoutes);
-app.use('/api/comentarios', comentarioRoutes);
+app.use('/api/comentarios', exigirSesionInterna, comentarioRoutes);
 app.use('/api/contratos-externos', contratoExternoRoutes);
+app.use('/api/contratos-externos', archivosAcreditacionesExternasRoutes);
+app.use('/api/contratos-externos', requisitosDocumentalesExternosRoutes);
 app.use('/api/documentos', documentoRoutes);
 app.use('/api/empresas', empresaRoutes);
 app.use('/api/empresas-externas', empresasExternasRoutes);
@@ -144,8 +149,8 @@ app.use('/api/roles', rolRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/usuarios', usuarioRoutes);
 app.use('/api/examenes', examenRoutes);
-app.use('/api/preguntas-examen', preguntaExamenRoutes);
-app.use('/api/respuestas-examen', respuestaExamenRoutes);
+app.use('/api/preguntas-examen', exigirSesionInterna, preguntaExamenRoutes);
+app.use('/api/respuestas-examen', exigirSesionInterna, respuestaExamenRoutes);
 
 // =====================================================
 // ✅ RELACIONES DOCUMENTO - USUARIO
