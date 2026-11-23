@@ -13,6 +13,10 @@ import {
 } from '../controllers/contratosExternos.controller';
 
 import {
+  obtenerResumenContratosExternosHttp,
+} from '../controllers/resumenContratosExternos.controller';
+
+import {
   vincularTrabajadorContratoExternoHttp,
 } from '../controllers/trabajadoresContratosExternos.controller';
 
@@ -41,6 +45,19 @@ router.get(
   validarToken,
   esAdministrador,
   obtenerContratosExternosHttp
+);
+
+/**
+ * GET /api/contratos-externos/resumen-documental
+ *
+ * Listado administrativo de contratistas y subcontratistas.
+ * La mandante se determina desde el administrador autenticado.
+ */
+router.get(
+  '/resumen-documental',
+  validarToken,
+  esAdministrador,
+  obtenerResumenContratosExternosHttp
 );
 
 /**

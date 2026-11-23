@@ -148,4 +148,70 @@ router.get(
   }
 );
 
+router.get(
+  '/entregas-por-resolver',
+  validarToken,
+  esAdministrador,
+  async (req, res): Promise<void> => {
+    const usuarioId = (req as RequestConUsuario).usuario?.id;
+
+    if (typeof usuarioId !== 'number' ||
+        !Number.isSafeInteger(usuarioId) ||
+        usuarioId <= 0) {
+      res.status(401).json({ mensaje: 'Administrador no autenticado.' });
+      return;
+    }
+
+    if (Object.keys(req.query).length > 0) {
+      res.status(400).json({ mensaje: 'Esta consulta no admite parámetros.' });
+      return;
+    }
+
+    try {
+      const mandanteId = await obtenerEmpresaAdministrador(usuarioId);
+
+      const [resumen] = await sequelize.query<{ total: number | string }>(
+        [
+          'SELECT COUNT(*) AS total',
+          'FROM contratos_externos c',
+          'JOIN empresas m ON m.id = c.mandante_empresa_id AND m.activo = 1',
+          'JOIN empresas e ON e.id = c.contratista_empresa_id AND e.activo = 1',
+          'JOIN requisitos_documentales_externos r ON r.contrato_id = c.id',
+          'JOIN acreditaciones_documentales_externas a ON a.id = (',
+          '  SELECT ultima.id',
+          '  FROM acreditaciones_documentales_externas ultima',
+          '  WHERE ultima.contrato_id = c.id AND ultima.requisito_id = r.id',
+          '    AND ultima.contrato_trabajador_id IS NULL',
+          '  ORDER BY ultima.fecha_presentacion DESC, ultima.id DESC',
+          '  LIMIT 1',
+          ')',
+          'WHERE c.mandante_empresa_id = :mandanteId',
+          "  AND r.activo = 1 AND r.destinatario = 'empresa'",
+          "  AND a.estado IN ('pendiente', 'en_revision')",
+        ].join('\n'),
+        {
+          replacements: { mandanteId },
+          type: QueryTypes.SELECT,
+        }
+      );
+
+      const total = Number(resumen?.total);
+      if (!Number.isSafeInteger(total) || total < 0) {
+        throw new Error('El total de entregas por resolver es inválido.');
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(200).json({ total });
+    } catch (error) {
+      if (error instanceof ErrorAsignacionDocumental) {
+        res.status(error.estadoHttp).json({ mensaje: error.message });
+        return;
+      }
+
+      console.error('Error al contar entregas externas por resolver:', error);
+      res.status(500).json({ mensaje: 'No fue posible consultar el total de entregas por resolver.' });
+    }
+  }
+);
+
 export default router;
