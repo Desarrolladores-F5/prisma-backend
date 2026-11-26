@@ -49,6 +49,136 @@ function idRuta(valor: unknown): number | null {
   return Number.isSafeInteger(id) ? id : null;
 }
 
+const directorioPlantillasExternas = path.resolve(
+  __dirname, '../../../prisma-storage-privado/plantillas-externas'
+);
+
+router.get(
+  '/:contratoId/requisitos/:requisitoId/plantilla',
+  validarTokenExternoPermitido,
+  async (req, res): Promise<void> => {
+    const usuarioId = (req as RequestConUsuario).usuario?.id;
+    const contratoId = idRuta(req.params.contratoId);
+    const requisitoId = idRuta(req.params.requisitoId);
+
+    if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) {
+      res.status(401).json({ mensaje: 'Usuario no autenticado.' });
+      return;
+    }
+
+    if (contratoId === null || requisitoId === null) {
+      res.status(400).json({ mensaje: 'Contrato o solicitud inválidos.' });
+      return;
+    }
+
+    if (Object.keys(req.query).length > 0) {
+      res.status(400).json({ mensaje: 'Esta descarga no admite parámetros.' });
+      return;
+    }
+
+    try {
+      const autorizacion = await autorizarAdministradorContratoExterno(
+        usuarioId,
+        contratoId
+      );
+
+      const [requisito] = await sequelize.query<{
+        plantilla_archivo_url: string | null;
+        plantilla_nombre_original: string | null;
+      }>(
+        [
+          'SELECT r.plantilla_archivo_url, r.plantilla_nombre_original',
+          'FROM requisitos_documentales_externos r',
+          'JOIN contratos_externos c ON c.id = r.contrato_id',
+          'JOIN empresas m ON m.id = c.mandante_empresa_id AND m.activo = 1',
+          'JOIN empresas e ON e.id = c.contratista_empresa_id AND e.activo = 1',
+          'WHERE r.id = :requisitoId AND c.id = :contratoId',
+          '  AND c.contratista_empresa_id = :empresaId',
+          "  AND r.activo = 1 AND r.destinatario = 'empresa'",
+          'LIMIT 1',
+        ].join('\n'),
+        {
+          replacements: {
+            requisitoId,
+            contratoId,
+            empresaId: autorizacion.empresaId,
+          },
+          type: QueryTypes.SELECT,
+        }
+      );
+
+      if (!requisito?.plantilla_archivo_url ||
+          !requisito.plantilla_nombre_original) {
+        res.status(404).json({
+          mensaje: 'Esta solicitud no tiene un archivo adjunto disponible.',
+        });
+        return;
+      }
+
+      const coincidencia =
+        /^privado:plantillas-externas\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(pdf|doc|docx))$/
+          .exec(requisito.plantilla_archivo_url);
+
+      if (!coincidencia) {
+        res.status(404).json({
+          mensaje: 'El archivo adjunto no está disponible.',
+        });
+        return;
+      }
+
+      const nombreOriginal = requisito.plantilla_nombre_original;
+
+      if (
+        nombreOriginal.length > 255 ||
+        /[\/\\\x00-\x1f\x7f]/.test(nombreOriginal) ||
+        !nombreOriginal.toLowerCase().endsWith('.' + coincidencia[2])
+      ) {
+        res.status(404).json({
+          mensaje: 'El archivo adjunto no está disponible.',
+        });
+        return;
+      }
+
+      let archivo: Buffer;
+
+      try {
+        archivo = await readFile(
+          path.join(directorioPlantillasExternas, coincidencia[1])
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          res.status(404).json({
+            mensaje: 'El archivo adjunto no está disponible.',
+          });
+          return;
+        }
+        throw error;
+      }
+
+      const tipos: Record<string, string> = {
+        pdf: 'application/pdf',
+        doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.attachment(nombreOriginal);
+      res.type(tipos[coincidencia[2]]).status(200).send(archivo);
+    } catch (error) {
+      if (error instanceof ErrorAutorizacionEmpresaExterna) {
+        res.status(error.estadoHttp).json({ mensaje: error.message });
+        return;
+      }
+
+      console.error('Error al descargar plantilla documental externa:', error);
+      res.status(500).json({
+        mensaje: 'No fue posible descargar el archivo adjunto.',
+      });
+    }
+  }
+);
+
 router.post(
   '/:contratoId/requisitos/:requisitoId/archivo',
   validarTokenExternoPermitido,
